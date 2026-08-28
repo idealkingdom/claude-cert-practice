@@ -12,18 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 2
       - name: Install academy bundle
         shell: bash
         run: |
-          git show HEAD^:.github/workflows/academy-updater.yml | grep '^H4sIA' | head -n1 > /tmp/academy_bundle.b64
+          cat .academy-bundle/00 .academy-bundle/01 .academy-bundle/02 .academy-bundle/03 .academy-bundle/04 .academy-bundle/05 > /tmp/academy_bundle.b64
           base64 -d /tmp/academy_bundle.b64 > /tmp/academy_bundle.tar.gz
           echo '59e11aebc5b9d54867fb731e92bd9b724facdb74df5172ac55079874ee12c704  /tmp/academy_bundle.tar.gz' | sha256sum -c -
           tar -xzf /tmp/academy_bundle.tar.gz -C .
-          rm .github/workflows/academy-updater.yml
+          rm -rf .academy-bundle .github/workflows/academy-updater.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add academy-data.js academy.js academy.css academy-link.js learn.html index.html sw.js .github/workflows/academy-updater.yml
+          git add -A
           git commit -m 'Add source-backed certification academy'
           git push
