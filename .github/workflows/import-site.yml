@@ -1,0 +1,86 @@
+name: Import finalized site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/import-site.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout destination
+        uses: actions/checkout@v6
+
+      - name: Copy finalized site from profile repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/idealkingdom/idealkingdom.git /tmp/profile
+          test -f /tmp/profile/claude-cert-mastery/index.html
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            /tmp/profile/claude-cert-mastery/ ./
+          touch .nojekyll
+          mkdir -p .github/workflows
+          cat > .github/workflows/pages.yml <<'YAML'
+          name: Deploy GitHub Pages
+
+          on:
+            push:
+              branches: [main]
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+            pages: write
+            id-token: write
+
+          concurrency:
+            group: pages
+            cancel-in-progress: true
+
+          jobs:
+            deploy:
+              environment:
+                name: github-pages
+                url: ${{ steps.deployment.outputs.page_url }}
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v6
+                - name: Configure Pages
+                  uses: actions/configure-pages@v5
+                - name: Prepare static artifact
+                  shell: bash
+                  run: |
+                    mkdir -p _site
+                    rsync -a \
+                      --exclude='.git' \
+                      --exclude='.github' \
+                      --exclude='_site' \
+                      ./ _site/
+                - name: Upload Pages artifact
+                  uses: actions/upload-pages-artifact@v4
+                  with:
+                    path: ./_site
+                - name: Deploy to GitHub Pages
+                  id: deployment
+                  uses: actions/deploy-pages@v4
+          YAML
+          rm -f .github/workflows/import-site.yml
+
+      - name: Commit imported site to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Import finalized certification practice site'
+          git push origin HEAD:main
