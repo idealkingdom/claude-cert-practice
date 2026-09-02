@@ -1,0 +1,55 @@
+name: Install CCAR-F v3 rotation
+on:
+  push:
+    paths:
+      - '.github/workflows/ccarf-v3-installer.yml'
+permissions:
+  contents: write
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Verify and install rotation bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .ccarf-v3-00.b64 .ccarf-v3-01.b64 .ccarf-v3-02.b64 .ccarf-v3-03.b64 .ccarf-v3-04.b64 .ccarf-v3-05.b64 .ccarf-v3-06.b64 .ccarf-v3-07.b64 | base64 -d > /tmp/ccarf-v3.tar.gz
+          echo '5c9a7108c139c11a7f46f2cb6120bc1285f87cac40a0c9319a2388a15e81bba2  /tmp/ccarf-v3.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/ccarf-v3.tar.gz -C .
+          node --check ccarf-final.js
+          node --check ccarf-final-bank.js
+          node --check ccarf-link.js
+          node --check sw.js
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm');
+          const ctx={window:{}};
+          vm.runInNewContext(fs.readFileSync('ccarf-final-bank.js','utf8'),ctx);
+          const d=ctx.window.CCARF_FINAL_BANK;
+          if(!d || d.questions.length!==480) throw new Error(`Expected 480 questions, got ${d?.questions?.length}`);
+          if(new Set(d.questions.map(q=>q.id)).size!==480) throw new Error('Duplicate question IDs detected');
+          const expected={
+            'Agentic Architecture & Orchestration':132,
+            'Tool Design & MCP Integration':84,
+            'Claude Code Configuration & Workflows':96,
+            'Prompt Engineering & Structured Output':96,
+            'Context Management & Reliability':72
+          };
+          for(const [domain,count] of Object.entries(expected)){
+            const actual=d.questions.filter(q=>q.domain===domain).length;
+            if(actual!==count) throw new Error(`${domain}: expected ${count}, got ${actual}`);
+          }
+          for(const q of d.questions){
+            if(!Array.isArray(q.options)||q.options.length!==4) throw new Error(`Bad options: ${q.id}`);
+            if(!Number.isInteger(q.correct)||q.correct<0||q.correct>3) throw new Error(`Bad correct index: ${q.id}`);
+          }
+          console.log('CCAR-F v3 bank validated: 480 unique questions');
+          NODE
+          rm -f .ccarf-v3-00.b64 .ccarf-v3-01.b64 .ccarf-v3-02.b64 .ccarf-v3-03.b64 .ccarf-v3-04.b64 .ccarf-v3-05.b64 .ccarf-v3-06.b64 .ccarf-v3-07.b64 .github/workflows/ccarf-v3-installer.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ccarf-final-bank.js ccarf-final.js ccarf-final.html ccarf-link.js sw.js .ccarf-v3-00.b64 .ccarf-v3-01.b64 .ccarf-v3-02.b64 .ccarf-v3-03.b64 .ccarf-v3-04.b64 .ccarf-v3-05.b64 .ccarf-v3-06.b64 .ccarf-v3-07.b64 .github/workflows/ccarf-v3-installer.yml
+          git commit -m 'Upgrade CCAR-F to 480-question exam-level rotation'
+          git push
