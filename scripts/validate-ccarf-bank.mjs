@@ -20,14 +20,20 @@ const forbidden = [
   'without weakening the existing authorization policy',
   'while keeping the existing service boundary',
   'with the current latency target unchanged',
-  'without adding another model call'
+  'without adding another model call',
+  'cycles have more time to resolve naturally',
+  'hide one of the tools randomly',
+  'force both tools on every turn',
+  'give every peer more tools'
 ];
 
 assert(bank.questions.length === 480, `Expected 480 bank entries, found ${bank.questions.length}.`);
 assert(new Set(bank.questions.map(q => q.id)).size === bank.questions.length, 'Question IDs are not unique.');
 
-let uniqueLongest = 0;
-let uniqueShortest = 0;
+let uniqueLongestWords = 0;
+let uniqueLongestChars = 0;
+let uniqueShortestChars = 0;
+let maxCharacterRange = 0;
 for (const question of bank.questions) {
   assert(question.stem && question.stem.length > 45, `${question.id}: stem is too short.`);
   assert(question.conceptId, `${question.id}: missing decision fingerprint.`);
@@ -35,17 +41,26 @@ for (const question of bank.questions) {
   assert(Number.isInteger(question.correct) && question.correct >= 0 && question.correct < 4, `${question.id}: invalid correct option.`);
   const combined = [question.stem, ...question.options.map(o => o.text)].join(' ').toLowerCase();
   for (const phrase of forbidden) assert(!combined.includes(phrase), `${question.id}: contains giveaway phrase “${phrase}”.`);
-  const lengths = question.options.map(o => o.text.trim().split(/\s+/).length);
-  const longest = Math.max(...lengths);
-  const shortest = Math.min(...lengths);
-  if (lengths[question.correct] === longest && lengths.filter(n => n === longest).length === 1) uniqueLongest++;
-  if (lengths[question.correct] === shortest && lengths.filter(n => n === shortest).length === 1) uniqueShortest++;
+  assert(new Set(question.options.map(o => o.text.toLowerCase())).size === 4, `${question.id}: duplicate option text.`);
+  const wordLengths = question.options.map(o => o.text.trim().split(/\s+/).length);
+  const characterLengths = question.options.map(o => o.text.length);
+  const longestWords = Math.max(...wordLengths);
+  const longestChars = Math.max(...characterLengths);
+  const shortestChars = Math.min(...characterLengths);
+  if (wordLengths[question.correct] === longestWords && wordLengths.filter(n => n === longestWords).length === 1) uniqueLongestWords++;
+  if (characterLengths[question.correct] === longestChars && characterLengths.filter(n => n === longestChars).length === 1) uniqueLongestChars++;
+  if (characterLengths[question.correct] === shortestChars && characterLengths.filter(n => n === shortestChars).length === 1) uniqueShortestChars++;
+  maxCharacterRange = Math.max(maxCharacterRange, longestChars - shortestChars);
 }
 
-const longestRate = uniqueLongest / bank.questions.length;
-const shortestRate = uniqueShortest / bank.questions.length;
-assert(longestRate <= 0.55, `Correct answer is uniquely longest in ${(longestRate * 100).toFixed(1)}% of items.`);
-assert(shortestRate <= 0.35, `Correct answer is uniquely shortest in ${(shortestRate * 100).toFixed(1)}% of items.`);
+const longestWordRate = uniqueLongestWords / bank.questions.length;
+const longestCharRate = uniqueLongestChars / bank.questions.length;
+const shortestCharRate = uniqueShortestChars / bank.questions.length;
+assert(longestWordRate <= 0.35, `Correct answer is uniquely longest by words in ${(longestWordRate * 100).toFixed(1)}% of items.`);
+assert(longestCharRate <= 0.35, `Correct answer is uniquely longest visually in ${(longestCharRate * 100).toFixed(1)}% of items.`);
+assert(shortestCharRate <= 0.35, `Correct answer is uniquely shortest visually in ${(shortestCharRate * 100).toFixed(1)}% of items.`);
+assert(maxCharacterRange <= 24, `An option set has a ${maxCharacterRange}-character length spread.`);
+assert(bank.questions.filter(q => q.difficulty === 'adversarial').length === 462, 'Legacy decision cases were not fully rebuilt with adversarial options.');
 assert(new Set(bank.questions.map(q => q.conceptId)).size >= 63, 'Decision fingerprint coverage fell below 63 patterns.');
 
 const instrumented = appSource.replace(
@@ -102,14 +117,15 @@ for (const total of [30, 60]) {
 }
 
 storage.set('claude-cert-theme', 'light');
+storage.set('ccarf-rotation-final-v4', 'old');
 storage.set('ccarf-rotation-final-v3', 'old');
 storage.set('ccarf-rotation-final-v2', 'old');
 storage.set('ccarf-sealed-final-v1', 'old');
 test.setState({ history: [{ id: 'old-result' }], attempt: { id: 'old-attempt' } });
 test.resetAll();
 assert(test.getState().history.length === 0 && !test.getState().attempt, 'Full reset did not clear in-memory exam state.');
-assert(!storage.has('ccarf-rotation-final-v3') || storage.get('ccarf-rotation-final-v3') === '{"history":[],"attempt":null}', 'Full reset retained current exam data.');
-assert(!storage.has('ccarf-rotation-final-v2') && !storage.has('ccarf-sealed-final-v1'), 'Full reset retained legacy exam data.');
+assert(!storage.has('ccarf-rotation-final-v4') || storage.get('ccarf-rotation-final-v4') === '{"history":[],"attempt":null}', 'Full reset retained current exam data.');
+assert(!storage.has('ccarf-rotation-final-v3') && !storage.has('ccarf-rotation-final-v2') && !storage.has('ccarf-sealed-final-v1'), 'Full reset retained legacy exam data.');
 assert(storage.get('claude-cert-theme') === 'light', 'Full reset should preserve the selected theme.');
 
 if (failures.length) {
@@ -118,4 +134,4 @@ if (failures.length) {
 }
 
 console.log(`Validated ${bank.questions.length} entries, ${new Set(bank.questions.map(q => q.conceptId)).size} decision fingerprints, and 80 rotating forms.`);
-console.log(`Correct option is uniquely longest in ${(longestRate * 100).toFixed(1)}% and uniquely shortest in ${(shortestRate * 100).toFixed(1)}% of bank entries.`);
+console.log(`Correct option is visually longest in ${(longestCharRate * 100).toFixed(1)}% and visually shortest in ${(shortestCharRate * 100).toFixed(1)}% of bank entries; maximum option spread is ${maxCharacterRange} characters.`);

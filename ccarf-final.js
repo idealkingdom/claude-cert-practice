@@ -1,14 +1,13 @@
 (()=>{
 const DATA=window.CCARF_FINAL_BANK;
 const app=document.getElementById('ccarf-final-app');
-const KEY='ccarf-rotation-final-v3', OLD='ccarf-rotation-final-v2', THEME='claude-cert-theme';
+const KEY='ccarf-rotation-final-v4', LEGACY=['ccarf-rotation-final-v3','ccarf-rotation-final-v2','ccarf-sealed-final-v1'], THEME='claude-cert-theme';
 const D=Object.keys(DATA.exam.quotas60), qmap=new Map(DATA.questions.map(q=>[q.id,q])), scen=DATA.scenarios;
 let tick=null,toastTimer=null;
 function load(){
   try{
     const now=JSON.parse(localStorage.getItem(KEY)||'null'); if(now)return {...now,history:now.history||[]};
-    const old=JSON.parse(localStorage.getItem(OLD)||'null');
-    return {history:old?.history||[],attempt:null};
+    return {history:[],attempt:null};
   }catch{return {history:[],attempt:null}}
 }
 let state=load();
@@ -88,14 +87,14 @@ function newAttempt(total){
 const completeAnswer=(a,id)=>Number.isInteger(a.answers?.[id]);
 const correctFor=(a,q)=>a.answers?.[q.id]===q.correct;
 const answered=a=>a.questionIds.filter(id=>completeAnswer(a,id)).length;
-function header(){return `<header class="ccarf-top"><a href="index.html" class="ccarf-back">← Practice</a><div><strong>CCAR-F Exam-Level Rotation</strong><span>BLUEPRINT-LOCKED FORMS</span></div><nav class="ccarf-top-actions"><button class="ccarf-settings-link" data-act="settings">⚙ Settings</button><button class="ccarf-icon" data-act="theme" aria-label="Change theme">${theme()==='dark'?'☼':'◐'}</button></nav></header>`}
+function header(){return `<header class="ccarf-top"><a href="index.html" class="ccarf-back">← Practice</a><div><strong>CCAR-F Exam-Level Rotation</strong><span>ADVERSARIAL HARD MODE · V4</span></div><nav class="ccarf-top-actions"><button class="ccarf-settings-link" data-act="settings">⚙ Settings</button><button class="ccarf-icon" data-act="theme" aria-label="Change theme">${theme()==='dark'?'☼':'◐'}</button></nav></header>`}
 function landing(){
  if(tick){clearInterval(tick);tick=null}
  const has=!!state.attempt,last=recent(1)[0],excluded=recentIds().size;
  app.innerHTML=`${header()}<main class="ccarf-shell"><section class="ccarf-hero">
  <div class="ccarf-kicker">Architect Foundations · hard rotating simulation</div>
  <h1>One operational decision per question.</h1>
- <p>Scenario-heavy cases cover all 30 CCAR-F task statements. Form assembly now rejects repeated decision logic, preserves the official domain weights, and locks out exact questions from your previous three completed attempts.</p>
+ <p>Scenario-heavy cases cover all 30 CCAR-F task statements. Every option is a credible technique; the decisive constraint separates the right layer and sequence from plausible near-neighbours.</p>
  <div class="ccarf-callout"><strong>Rotation rule</strong><span>${excluded?`${excluded} recent cases are locked out; decision fingerprints must also be unique inside this form.`:'Your first form will contain no repeated decision fingerprint.'}</span></div>
  <div class="ccarf-actions">
    ${has?'<button class="btn primary" data-act="resume">Resume current attempt</button>':''}
@@ -155,7 +154,7 @@ function resetAll(){
  const completed=state.history?.length||0;
  if(!confirm(`Reset exam level from scratch? This deletes the active attempt and ${completed} saved result${completed===1?'':'s'}.`))return;
  if(tick){clearInterval(tick);tick=null}
- for(const key of [KEY,OLD,'ccarf-sealed-final-v1'])localStorage.removeItem(key);
+ for(const key of [KEY,...LEGACY])localStorage.removeItem(key);
  state={history:[],attempt:null};save();landing();toast('Exam level reset from scratch');
 }
 document.addEventListener('click',e=>{

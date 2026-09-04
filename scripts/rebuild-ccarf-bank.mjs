@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { HARD_OPTIONS } from './hard-mode-options.mjs';
 
 const bankPath = new URL('../ccarf-final-bank.js', import.meta.url);
 const sandbox = { window: {} };
@@ -104,10 +105,10 @@ const additions = [
         scenario: 'support',
         stem: 'A support workflow runs policy lookup, account-history retrieval, and outage-status checks one after another. None consumes another check\'s output, and the serial latency breaches the response SLO. What is the BEST redesign?',
         options: [
-          'Run the three independent checks concurrently, give each a bounded result contract, and let the coordinator synthesize after all required results arrive.',
-          'Let the first check decide which of the other checks may run so the workflow always has a single reasoning path.',
-          'Combine all three integrations into one unrestricted tool so Claude can choose an internal order.',
-          'Increase the turn budget so the serial workflow has enough time to finish.'
+          'Run the checks concurrently with bounded results, then let the coordinator synthesize after all three finish.',
+          'Run policy lookup first, then use its result to decide whether account and outage checks are necessary.',
+          'Expose one composite check tool that performs the three integrations internally in a fixed sequence.',
+          'Start all checks together, but let the first successful result cancel the remaining two requests.'
         ],
         correct: 0
       },
@@ -115,10 +116,10 @@ const additions = [
         scenario: 'migration',
         stem: 'A migration coordinator analyzes repositories sequentially even though each repository has a separate owner and no shared working tree. The final rollout plan is the only step that needs all findings. Which execution model is strongest?',
         options: [
-          'Have every repository agent update the rollout plan as soon as it finishes.',
-          'Fan out bounded repository analyses, then perform one synthesis step over their structured findings.',
-          'Use one agent with a larger context window to inspect all repositories in order.',
-          'Allow repository agents to delegate recursively until every dependency is resolved.'
+          'Let repository agents update a shared rollout plan as they finish, using version checks for conflicts.',
+          'Fan out bounded repository analyses, then synthesize one rollout plan from their structured findings.',
+          'Group repositories by owner and process each group sequentially before combining the group reports.',
+          'Build the rollout plan incrementally, allowing later repository agents to revise earlier conclusions.'
         ],
         correct: 1
       },
@@ -126,10 +127,10 @@ const additions = [
         scenario: 'research',
         stem: 'Three research agents can search independent source collections, but they currently read and rewrite the same scratchpad while searching. Early claims anchor later searches and conflicting edits are lost. What should change?',
         options: [
-          'Keep the shared scratchpad and ask every agent to include a confidence score with each edit.',
-          'Run the agents sequentially so later agents can inherit the full transcript.',
-          'Give each researcher an isolated evidence ledger, then reconcile cited claims in a dedicated synthesis pass.',
-          'Ask the fastest researcher to act as the permanent source of truth for the others.'
+          'Keep the shared scratchpad but require source attribution and optimistic locking for every proposed edit.',
+          'Run researchers sequentially so each can challenge the claims and citations produced by earlier work.',
+          'Give each researcher an isolated evidence ledger, then reconcile cited claims during dedicated synthesis.',
+          'Let researchers share only accepted claims while keeping rejected evidence isolated in their local traces.'
         ],
         correct: 2
       },
@@ -137,10 +138,10 @@ const additions = [
         scenario: 'productivity',
         stem: 'A developer assistant waits for linting to finish before starting type checks and unit tests. The three commands are read-only and independent, but a patch may be proposed only after all results are known. What is the BEST orchestration?',
         options: [
-          'Ask one subagent to run all commands serially and return its complete terminal transcript.',
-          'Start patch generation immediately and cancel it if a later check fails.',
-          'Let each checker edit the same branch when it detects a problem.',
-          'Run the checks concurrently, collect compact results, and gate patch generation on the combined outcome.'
+          'Use one subagent to run the checks serially and return a compact failure summary rather than transcripts.',
+          'Begin patch generation from lint results while tests continue, discarding the patch if later checks fail.',
+          'Run checkers concurrently and allow each to propose an isolated patch for its detected failures.',
+          'Run the checks concurrently, collect bounded results, and gate patch generation on their combined outcome.'
         ],
         correct: 3
       },
@@ -148,10 +149,10 @@ const additions = [
         scenario: 'ci',
         stem: 'Two remediation agents propose changes to the same dependency lockfile. Their tasks looked independent, but each patch is computed from the original file and the second application silently overwrites the first. What is the strongest correction?',
         options: [
-          'Increase parallelism and rely on the test suite to catch overwritten changes.',
-          'Declare the lockfile a shared dependency, serialize its mutations, and recompute the later patch from the updated state.',
-          'Give both agents write access to the default branch so merges happen sooner.',
-          'Choose whichever patch was produced with the higher self-reported confidence.'
+          'Keep parallel generation but apply both patches through a three-way merge before running the test suite.',
+          'Treat the lockfile as shared state, serialize its mutations, and recompute the second patch afterward.',
+          'Assign disjoint dependency sections to each agent and merge their original patches in completion order.',
+          'Let both agents propose changes, then ask a reviewer agent to select one complete lockfile patch.'
         ],
         correct: 1
       },
@@ -160,9 +161,9 @@ const additions = [
         stem: 'A document service extracts 400 independent pages serially and merges their fields at the end. Memory is bounded, page order is known, and no page depends on another. Which change improves throughput without weakening determinism?',
         options: [
           'Process pages with bounded concurrency, preserve page identifiers, and merge results in document order.',
-          'Send the entire document to several agents and keep the longest response.',
-          'Allow each page agent to revise fields extracted by earlier agents.',
-          'Remove page identifiers so the merger has fewer tokens to process.'
+          'Split the document into contiguous page ranges and process each range sequentially in parallel workers.',
+          'Stream page results into the merger immediately, allowing arrival order to determine conflicting field priority.',
+          'Process every page independently, then ask a synthesis model to reconstruct page order from extracted content.'
         ],
         correct: 0
       }
@@ -178,10 +179,10 @@ const additions = [
         scenario: 'support',
         stem: 'A support agent may issue small credits automatically. A customer requests a much larger exception, and the account evidence is contradictory. The agent is highly confident that approval would retain the customer. What should the workflow do?',
         options: [
-          'Approve because high model confidence offsets incomplete evidence.',
-          'Ask the model to reconsider until two consecutive answers agree.',
-          'Stop at the credit threshold and route the evidence, uncertainty, and requested action to an authorized reviewer.',
-          'Split the credit into several automatic transactions below the threshold.'
+          'Approve the exception provisionally because the transaction remains reversible during the settlement window.',
+          'Request an independent assessment and approve only if both models recommend the same exception amount.',
+          'Stop at the credit threshold and send the evidence, uncertainty, and requested action to an authorized reviewer.',
+          'Issue the maximum automatic credit now and defer only the remaining amount for manager review.'
         ],
         correct: 2
       },
@@ -189,10 +190,10 @@ const additions = [
         scenario: 'migration',
         stem: 'During a database migration, an agent detects that the production schema differs from the signed migration plan. The next step is reversible, but continuing would make later destructive steps appear valid. What is the BEST behavior?',
         options: [
-          'Pause the run, preserve the observed state, and require approval of a revised plan before continuing.',
-          'Continue through the reversible step and escalate only before the first destructive command.',
-          'Regenerate the signed plan automatically from the live schema.',
-          'Increase the validation retry count in case the schema difference is transient.'
+          'Pause the run, preserve observed state, and require approval of a revised plan before continuing.',
+          'Complete the reversible step, then require approval immediately before the first destructive command.',
+          'Generate a new plan from the live schema and continue if deterministic validation succeeds.',
+          'Restore the expected schema from the signed plan before resuming the unchanged migration sequence.'
         ],
         correct: 0
       },
@@ -200,10 +201,10 @@ const additions = [
         scenario: 'research',
         stem: 'A research agent must answer a safety question from primary sources. It finds several summaries but cannot retrieve the cited study, and the deadline is near. Which response policy is strongest?',
         options: [
-          'Infer the study result from agreement among the summaries.',
-          'Return the supported findings, mark the unresolved claim as unverified, and escalate the evidence gap rather than completing it speculatively.',
-          'Use the most recent summary as a substitute for the primary source.',
-          'Continue searching until the turn budget expires, then omit all provenance.'
+          'Use the consensus of independent summaries but label the resulting claim as secondary-source evidence.',
+          'Return supported findings, mark the claim unverified, and escalate the missing primary evidence.',
+          'Use the most recent summary while preserving its citation chain and lowering the claim confidence.',
+          'Omit the unresolved claim from the answer and report only conclusions backed by retrieved primary sources.'
         ],
         correct: 1
       },
@@ -211,10 +212,10 @@ const additions = [
         scenario: 'productivity',
         stem: 'A coding agent is authorized to modify one service. Its proposed fix requires changing a shared package owned by another team, and the local tests would pass with that change. What should happen next?',
         options: [
-          'Modify the shared package because passing tests demonstrate safety.',
-          'Copy the shared package into the authorized service and edit the copy.',
-          'Ask a subagent to make the shared change so the original agent stays within scope.',
-          'Stop before the out-of-scope edit and request the owning team\'s review with the proposed dependency change.'
+          'Prepare the shared-package patch because tests establish feasibility, but leave it uncommitted for later review.',
+          'Vendor the required shared code into the authorized service and document the temporary divergence.',
+          'Delegate the shared-package change to a specialist operating under the original task authorization.',
+          'Stop before the shared edit and request the owning team’s approval with the proposed change.'
         ],
         correct: 3
       },
@@ -222,10 +223,10 @@ const additions = [
         scenario: 'ci',
         stem: 'A CI repair agent sees a new install script making an unexpected outbound request while using a release credential. Tests still pass and the change came from a trusted maintainer. What is the BEST next action?',
         options: [
-          'Quarantine the run, preserve evidence, and escalate through the security incident path before any automated repair or release.',
-          'Allow the release because repository trust is stronger evidence than network behavior.',
-          'Ask the agent to rewrite the script and proceed if tests remain green.',
-          'Rotate the credential after release so the pipeline is not delayed.'
+          'Quarantine the run, preserve evidence, and escalate through the security incident path before release.',
+          'Disable outbound access, rerun the trusted commit, and release if the isolated build reproduces successfully.',
+          'Remove the outbound request automatically and proceed when tests and artifact checks remain green.',
+          'Rotate the release credential immediately, then restart the same workflow from its last successful stage.'
         ],
         correct: 0
       },
@@ -233,10 +234,10 @@ const additions = [
         scenario: 'extract',
         stem: 'An extraction agent cannot distinguish two handwritten values in a legally binding field. Both values satisfy the schema, but choosing the wrong one changes the payment obligation. What is the correct handling?',
         options: [
-          'Select the value with the higher token probability and record confidence.',
-          'Run the same image through the model repeatedly and use majority vote.',
-          'Return an explicit unresolved field with the source location and require human verification.',
-          'Leave the field empty without identifying why it was omitted.'
+          'Select the higher-probability value and preserve both candidates in field-level audit metadata.',
+          'Use independent extraction passes and accept a value only when a calibrated majority agrees.',
+          'Return the field as unresolved with its source location and require authorized human verification.',
+          'Leave the field null and lower the document-level confidence so downstream review is triggered.'
         ],
         correct: 2
       }
@@ -252,10 +253,10 @@ const additions = [
         scenario: 'support',
         stem: 'An MCP refund tool accepts any authenticated employee token. The system prompt tells Claude that only managers may approve refunds above $200, but the server does not inspect role claims. What is the required fix?',
         options: [
-          'Add more examples of forbidden refunds to the system prompt.',
-          'Require Claude to include its confidence in the refund request.',
-          'Enforce the amount and role policy in the refund service using verified identity claims.',
-          'Rename the tool so the restriction is more visible during tool selection.'
+          'Add manager-only refund examples and require a structured authorization rationale in every tool request.',
+          'Require the model to provide the operator role and confidence as signed request parameters.',
+          'Enforce amount and role policy in the refund service using verified identity claims.',
+          'Split high-value refunds into a separate tool exposed only in manager-oriented agent sessions.'
         ],
         correct: 2
       },
@@ -263,10 +264,10 @@ const additions = [
         scenario: 'migration',
         stem: 'A deployment tool takes an `environment` string supplied by the model. A staging operator can ask the agent to send `production`, and the tool executes with a shared credential. Which design closes the authorization gap?',
         options: [
-          'Describe the allowed environment more forcefully in the parameter documentation.',
-          'Bind permitted environments to the authenticated principal on the server and reject unauthorized targets.',
-          'Ask a second model to verify the environment string before execution.',
-          'Log production requests so misuse can be investigated later.'
+          'Constrain `environment` to an enum and document which operator roles may select each value.',
+          'Bind allowed environments to the authenticated principal and reject unauthorized targets server-side.',
+          'Require a second model to verify the operator’s intended environment before tool execution.',
+          'Accept the requested environment but require an immutable audit event before production execution.'
         ],
         correct: 1
       },
@@ -274,10 +275,10 @@ const additions = [
         scenario: 'research',
         stem: 'A research connector is intended for public documents, but its service credential can also read private workspaces. Prompt instructions say not to access private data. What is the strongest control?',
         options: [
-          'Use a credential restricted to the public collection and enforce that collection allowlist in the connector.',
-          'Keep the broad credential and redact private results after retrieval.',
-          'Require the model to explain why each document is public before opening it.',
-          'Hide private workspace names from the tool description.'
+          'Use a public-collection credential and enforce that collection allowlist inside the connector.',
+          'Keep the broad credential but apply deterministic classification and redaction before results reach Claude.',
+          'Require the model to justify public relevance before the connector retrieves each requested document.',
+          'Filter private workspace identifiers from discovery results while retaining broad read access for retrieval.'
         ],
         correct: 0
       },
@@ -285,10 +286,10 @@ const additions = [
         scenario: 'productivity',
         stem: 'A file-editing tool checks that a requested path starts with the repository directory, but it does not resolve `..` segments or symlinks. What should be changed FIRST?',
         options: [
-          'Tell Claude never to use relative path segments.',
-          'Reject filenames longer than a fixed token count.',
-          'Run a second agent to review paths before every write.',
-          'Canonicalize the target on the server and enforce containment within the authorized root before writing.'
+          'Reject relative segments in model arguments while continuing to permit validated absolute repository paths.',
+          'Resolve symlinks during planning and require the model to return the resulting canonical target path.',
+          'Use a policy-review model to approve any write whose raw path does not begin with the repository root.',
+          'Canonicalize server-side and enforce containment within the authorized root immediately before writing.'
         ],
         correct: 3
       },
@@ -296,10 +297,10 @@ const additions = [
         scenario: 'ci',
         stem: 'A release tool lets the model supply the repository and commit SHA. The workflow identity is authorized for one repository, but the tool never checks that the requested SHA belongs to that repository. What is the BEST fix?',
         options: [
-          'Verify workflow identity, repository scope, and commit provenance server-side before creating a release.',
-          'Ask Claude to quote the workflow URL in every release request.',
-          'Permit any SHA when the test suite passes.',
-          'Add the repository name to the system prompt and keep the shared release token.'
+          'Verify workflow identity, repository scope, and commit provenance server-side before release creation.',
+          'Require the workflow URL and repository name as signed parameters in each model-generated request.',
+          'Allow any tested commit when its artifact digest matches the build output from the authorized repository.',
+          'Replace the shared release token with repository tokens while trusting the model-supplied commit SHA.'
         ],
         correct: 0
       },
@@ -307,10 +308,10 @@ const additions = [
         scenario: 'extract',
         stem: 'A multi-tenant extraction tool accepts `tenant_id` from the model and uses it directly in a database query. Authentication occurs upstream, but the tool receives no verified tenant binding. What is the correct architecture?',
         options: [
-          'Keep the argument and add a prompt example showing the right tenant ID.',
-          'Derive tenant scope from the authenticated session at the tool boundary and treat model input only as data within that scope.',
-          'Let the model compare the tenant ID with the document header.',
-          'Return all matching tenants and ask Claude to discard the unauthorized rows.'
+          'Keep `tenant_id` but require Claude to copy it from a signed context block in the system prompt.',
+          'Derive tenant scope from the authenticated session and constrain model input within that scope.',
+          'Compare the model-supplied tenant with a document header before constructing the database query.',
+          'Query by tenant ID, then apply a server-side authorization filter to the returned rows.'
         ],
         correct: 1
       }
@@ -320,20 +321,27 @@ const additions = [
 
 const base = bank.questions
   .filter(question => !retiredIds.has(question.id) && !question.id.startsWith('v4-'))
-  .map(question => ({
-    ...question,
-    stem: cleanSentence(question.stem),
-    options: question.options.map((option, index) => ({
-      ...option,
-      text: index === question.correct && conciseAnswers.has(question.key)
-        ? conciseAnswers.get(question.key)
-        : cleanSentence(option.text)
-    })),
-    conceptId: `${question.family}:${Buffer.from(question.key).toString('base64url').slice(0, 18)}`,
-    authored: true
-  }));
+  .map(question => {
+    const hardOptions = HARD_OPTIONS.get(question.key);
+    return {
+      ...question,
+      stem: cleanSentence(question.stem),
+      options: hardOptions
+        ? hardOptions.map(text => ({ text }))
+        : question.options.map((option, index) => ({
+            ...option,
+            text: index === question.correct && conciseAnswers.has(question.key)
+              ? conciseAnswers.get(question.key)
+              : cleanSentence(option.text)
+          })),
+      correct: hardOptions ? 0 : question.correct,
+      conceptId: `${question.family}:${Buffer.from(question.key).toString('base64url').slice(0, 18)}`,
+      difficulty: hardOptions ? 'adversarial' : 'standard',
+      authored: true
+    };
+  });
 
-bank.version = '2026-09-04';
+bank.version = '2026-09-04-hard-v4';
 bank.questions = [...base, ...additions];
 
 fs.writeFileSync(bankPath, `window.CCARF_FINAL_BANK=${JSON.stringify(bank)};\n`);
