@@ -1,7 +1,7 @@
 (()=>{
 const DATA=window.CCARF_FINAL_BANK;
 const app=document.getElementById('ccarf-final-app');
-const KEY='ccarf-rotation-final-v2', OLD='ccarf-sealed-final-v1', THEME='claude-cert-theme';
+const KEY='ccarf-rotation-final-v3', OLD='ccarf-rotation-final-v2', THEME='claude-cert-theme';
 const D=Object.keys(DATA.exam.quotas60), qmap=new Map(DATA.questions.map(q=>[q.id,q])), scen=DATA.scenarios;
 let tick=null,toastTimer=null;
 function load(){
@@ -23,34 +23,60 @@ function toast(t){let el=document.querySelector('.ccarf-toast');if(!el){el=docum
 function recent(n=3){return (state.history||[]).filter(h=>Array.isArray(h.questionIds)&&h.questionIds.some(id=>qmap.has(id))).slice(0,n)}
 function recentIds(){const s=new Set();for(const h of recent(3))for(const id of h.questionIds||[])if(qmap.has(id))s.add(id);return s}
 function recentFamilies(){const m=new Map();for(const h of recent(3))for(const id of h.questionIds||[]){const q=qmap.get(id);if(q)m.set(q.family,(m.get(q.family)||0)+1)}return m}
+function recentConcepts(){const m=new Map();for(const h of recent(3))for(const id of h.questionIds||[]){const q=qmap.get(id);if(q)m.set(q.conceptId,(m.get(q.conceptId)||0)+1)}return m}
 function scenarioUse(){const m=new Map(Object.keys(scen).map(x=>[x,0]));for(const h of recent(3))for(const sid of h.scenarioIds||[])m.set(sid,(m.get(sid)||0)+1);return m}
 const ROW_A={[D[0]]:4,[D[1]]:3,[D[2]]:3,[D[3]]:3,[D[4]]:2};
 const ROW_B={[D[0]]:4,[D[1]]:2,[D[2]]:3,[D[3]]:3,[D[4]]:3};
-function chooseScenarios(total){
-  const count=total===60?4:2, use=scenarioUse();
-  return shuffle(Object.keys(scen)).sort((a,b)=>(use.get(a)||0)-(use.get(b)||0)).slice(0,count);
+function scenarioSets(total){
+  const use=scenarioUse(), left=['support','research','ci'], right=['migration','productivity','extract'], sets=[];
+  if(total===60){
+    for(let a=0;a<left.length;a++)for(let b=a+1;b<left.length;b++)for(let c=0;c<right.length;c++)for(let d=c+1;d<right.length;d++)sets.push([left[a],left[b],right[c],right[d]]);
+  }else{
+    for(const a of left)for(const b of right)sets.push([a,b]);
+  }
+  return shuffle(sets).sort((a,b)=>a.reduce((n,s)=>n+(use.get(s)||0),0)-b.reduce((n,s)=>n+(use.get(s)||0),0));
 }
-function pickPool(sid,domain,need,excluded,famUse,usedNow){
-  let pool=DATA.questions.filter(q=>q.scenario===sid&&q.domain===domain&&!excluded.has(q.id));
-  pool=shuffle(pool).sort((a,b)=>{
-    const sa=(usedNow.has(a.family)?20:0)+(famUse.get(a.family)||0), sb=(usedNow.has(b.family)?20:0)+(famUse.get(b.family)||0);
-    return sa-sb;
+function assignDomain(sids,rows,domain,excluded,conceptUse,famUse){
+  const slots=[];
+  for(let i=0;i<sids.length;i++)for(let n=0;n<rows[i][domain];n++)slots.push(sids[i]);
+  const available=DATA.questions.filter(q=>q.domain===domain&&!excluded.has(q.id));
+  const edges=slots.map(sid=>{
+    const ids=[...new Set(available.filter(q=>q.scenario===sid).map(q=>q.conceptId))];
+    return shuffle(ids).sort((a,b)=>(conceptUse.get(a)||0)-(conceptUse.get(b)||0));
   });
-  if(pool.length<need)throw new Error(`Rotation pool exhausted for ${sid} / ${domain}.`);
-  const out=pool.slice(0,need);out.forEach(q=>usedNow.add(q.family));return out;
+  const owner=new Map(), assigned=Array(slots.length);
+  function claim(slot,seen){
+    for(const concept of edges[slot]){
+      if(seen.has(concept))continue;seen.add(concept);
+      const occupied=owner.get(concept);
+      if(occupied===undefined||claim(occupied,seen)){owner.set(concept,slot);assigned[slot]=concept;return true}
+    }
+    return false;
+  }
+  const order=slots.map((_,i)=>i).sort((a,b)=>edges[a].length-edges[b].length);
+  for(const slot of order)if(!claim(slot,new Set()))throw new Error(`No decision-unique assignment for ${domain}.`);
+  return slots.map((sid,i)=>{
+    const choices=shuffle(available.filter(q=>q.scenario===sid&&q.conceptId===assigned[i])).sort((a,b)=>(famUse.get(a.family)||0)-(famUse.get(b.family)||0));
+    if(!choices.length)throw new Error(`No authored case for ${sid} / ${domain}.`);
+    return choices[0];
+  });
 }
 function buildForm(total){
-  const excluded=recentIds(), famUse=recentFamilies(), sids=chooseScenarios(total), rows=total===60?[ROW_A,ROW_A,ROW_A,ROW_B]:[ROW_A,ROW_B];
-  const selected=[],usedNow=new Set();
-  for(let si=0;si<sids.length;si++){
-    const sid=sids[si], row=rows[si], block=[];
-    for(const domain of D)block.push(...pickPool(sid,domain,row[domain],excluded,famUse,usedNow));
-    if(block.length!==15)throw new Error('Scenario block did not resolve to 15 questions.');
-    selected.push(...shuffle(block));
+  const excluded=recentIds(), famUse=recentFamilies(), conceptUse=recentConcepts(), rows=total===60?[ROW_A,ROW_A,ROW_A,ROW_B]:[ROW_A,ROW_B];
+  let lastError;
+  for(const base of scenarioSets(total))for(let attempt=0;attempt<12;attempt++){
+    const sids=shuffle(base), byScenario=new Map(sids.map(s=>[s,[]]));
+    try{
+      for(const domain of D)for(const q of assignDomain(sids,rows,domain,excluded,conceptUse,famUse))byScenario.get(q.scenario).push(q);
+      const selected=sids.flatMap(sid=>shuffle(byScenario.get(sid)));
+      if(selected.length!==total||new Set(selected.map(q=>q.id)).size!==total)throw new Error('Question identifiers are not unique.');
+      if(new Set(selected.map(q=>q.conceptId)).size!==total)throw new Error('Decision fingerprints are not unique.');
+      if(sids.some(sid=>byScenario.get(sid).length!==15))throw new Error('Scenario block did not resolve to 15 questions.');
+      const optionOrders={};for(const q of selected)optionOrders[q.id]=shuffle([0,1,2,3]);
+      return {questionIds:selected.map(q=>q.id),optionOrders,scenarioIds:sids};
+    }catch(error){lastError=error}
   }
-  if(selected.length!==total||new Set(selected.map(q=>q.id)).size!==total)throw new Error('Form generation failed uniqueness check.');
-  const optionOrders={};for(const q of selected)optionOrders[q.id]=shuffle([0,1,2,3]);
-  return {questionIds:selected.map(q=>q.id),optionOrders,scenarioIds:sids};
+  throw lastError||new Error('Could not assemble a decision-unique form.');
 }
 function newAttempt(total){
   try{
@@ -62,24 +88,24 @@ function newAttempt(total){
 const completeAnswer=(a,id)=>Number.isInteger(a.answers?.[id]);
 const correctFor=(a,q)=>a.answers?.[q.id]===q.correct;
 const answered=a=>a.questionIds.filter(id=>completeAnswer(a,id)).length;
-function header(){return `<header class="ccarf-top"><a href="index.html" class="ccarf-back">← Practice</a><div><strong>CCAR-F Exam-Level Rotation</strong><span>480-QUESTION POOL</span></div><button class="ccarf-icon" data-act="theme">${theme()==='dark'?'☼':'◐'}</button></header>`}
+function header(){return `<header class="ccarf-top"><a href="index.html" class="ccarf-back">← Practice</a><div><strong>CCAR-F Exam-Level Rotation</strong><span>BLUEPRINT-LOCKED FORMS</span></div><button class="ccarf-icon" data-act="theme">${theme()==='dark'?'☼':'◐'}</button></header>`}
 function landing(){
  if(tick){clearInterval(tick);tick=null}
  const has=!!state.attempt,last=recent(1)[0],excluded=recentIds().size;
  app.innerHTML=`${header()}<main class="ccarf-shell"><section class="ccarf-hero">
  <div class="ccarf-kicker">Architect Foundations · hard rotating simulation</div>
- <h1>Fresh questions, same blueprint, less memorisation.</h1>
- <p>Original scenario-heavy questions built around all 30 CCAR-F task statements. Each new form excludes every exact question from your previous three completed rotation attempts, then rebalances by the official domains and shared scenarios.</p>
- <div class="ccarf-callout"><strong>Rotation rule</strong><span>${excluded?`${excluded} questions from your last ${recent(3).length} attempt${recent(3).length===1?' is':'s are'} currently locked out.`:'No v3 rotation history yet. Your first form draws from the full 480-question pool.'}</span></div>
+ <h1>One operational decision per question.</h1>
+ <p>Scenario-heavy cases cover all 30 CCAR-F task statements. Form assembly now rejects repeated decision logic, preserves the official domain weights, and locks out exact questions from your previous three completed attempts.</p>
+ <div class="ccarf-callout"><strong>Rotation rule</strong><span>${excluded?`${excluded} recent cases are locked out; decision fingerprints must also be unique inside this form.`:'Your first form will contain no repeated decision fingerprint.'}</span></div>
  <div class="ccarf-actions">
    ${has?'<button class="btn primary" data-act="resume">Resume current attempt</button>':''}
    ${!has?'<button class="btn primary" data-act="start" data-total="60">60 questions · 120 min</button><button class="btn" data-act="start" data-total="30">30 questions · 60 min</button>':''}
    <a class="btn ghost" href="ccarf-labs.html">Hands-on labs</a><a class="btn ghost" href="learn.html?cert=architectF">Learn</a>
  </div></section>
- <section class="ccarf-metrics"><article><b>480</b><span>rotation pool</span></article><article><b>3</b><span>prior attempts excluded</span></article><article><b>30/60</b><span>question modes</span></article><article><b>6</b><span>shared scenarios</span></article></section>
+ <section class="ccarf-metrics"><article><b>0</b><span>repeated decisions per form</span></article><article><b>3</b><span>prior attempts excluded</span></article><article><b>30/60</b><span>question modes</span></article><article><b>6</b><span>shared scenarios</span></article></section>
  ${last?`<section class="ccarf-last"><div><span>Latest rotation result</span><strong>${last.percent}%</strong></div><div>${esc(last.verdict)}</div><button class="btn ghost" data-act="result" data-id="${last.id}">Review</button></section>`:''}
  <section class="ccarf-blueprint"><h2>Blueprint per form</h2>${D.map(d=>`<div><span>${esc(d)}</span><b>${DATA.exam.quotas60[d]} / ${DATA.exam.quotas30[d]}</b></div>`).join('')}<small>Values show 60-question / 30-question quotas.</small></section>
- <p class="ccarf-note">Question text is original. Difficulty construction is informed by the public CCAR-F blueprint, current Claude documentation, and broad candidate reports; no live exam questions are reproduced.</p></main>`;
+ <p class="ccarf-note">Question text is original. Difficulty comes from competing, plausible actions and a decisive operational constraint—not from decorative wording or answer-length cues. No live exam questions are reproduced.</p></main>`;
 }
 function exam(){
  const a=state.attempt;if(!a)return landing();const q=qmap.get(a.questionIds[a.current]);if(!q)return landing();
@@ -112,7 +138,7 @@ function result(id){
 }
 function review(id){
  const h=state.history.find(x=>x.id===id)||state.history[0];if(!h)return;const wrong=h.rows.filter(x=>!x.correct);
- app.innerHTML=`${header()}<main class="ccarf-shell"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Post-submit review</div><h1>${wrong.length} misses</h1></div><button class="btn" data-act="result" data-id="${h.id}">Results</button></div>${wrong.map((r,idx)=>{const q=qmap.get(r.id);if(!q)return'';const sel=q.options[r.selected],cor=q.options[q.correct];return `<article class="ccarf-review"><div class="ccarf-review-num">Miss ${idx+1} · ${esc(q.domain)} · ${esc(r.confidence||'No confidence')}</div><div class="ccarf-mini-scenario">${esc(scen[q.scenario].title)}</div><h3>${esc(q.stem)}</h3><div class="ccarf-review-answer wrong"><b>Your choice</b><span>${esc(sel?.text||'Unanswered')}</span></div><div class="ccarf-review-answer right"><b>Best choice</b><span>${esc(cor.text)}</span></div><div class="ccarf-key"><b>Decisive clue</b>${esc(q.key)}</div><div class="ccarf-key"><b>Trap family</b>${esc(q.trap)}</div></article>`}).join('')}</main>`;
+ app.innerHTML=`${header()}<main class="ccarf-shell"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Post-submit review</div><h1>${wrong.length} misses</h1></div><button class="btn" data-act="result" data-id="${h.id}">Results</button></div>${wrong.map((r,idx)=>{const q=qmap.get(r.id);if(!q)return'';const order=h.optionOrders?.[q.id]||[0,1,2,3];return `<article class="ccarf-review"><div class="ccarf-review-num">Miss ${idx+1} · ${esc(q.domain)} · ${esc(r.confidence||'No confidence')}</div><div class="ccarf-mini-scenario">${esc(scen[q.scenario].title)}</div><h3>${esc(q.stem)}</h3><div class="ccarf-review-options">${order.map((oi,di)=>`<div class="ccarf-review-option ${oi===q.correct?'right':''} ${oi===r.selected&&oi!==q.correct?'wrong':''}"><b>${String.fromCharCode(65+di)}${oi===q.correct?' · Best answer':oi===r.selected?' · Your answer':''}</b><span>${esc(q.options[oi].text)}</span></div>`).join('')}</div><div class="ccarf-key"><b>Decisive clue</b>${esc(q.key)}</div><div class="ccarf-key"><b>Why the distractor looked plausible</b>${esc(q.trap)}</div></article>`}).join('')}</main>`;
 }
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const x=b.dataset.act;if(x==='theme'){localStorage.setItem(THEME,theme()==='dark'?'light':'dark');applyTheme();state.attempt?exam():landing()}else if(x==='start')newAttempt(Number(b.dataset.total)||60);else if(x==='resume')exam();else if(x==='home')landing();else if(x==='result')result(b.dataset.id);else if(x==='review')review(b.dataset.id);else if(state.attempt){const a=state.attempt,q=qmap.get(a.questionIds[a.current]);if(x==='answer'){a.answers[q.id]=Number(b.dataset.oi);save();exam()}if(x==='confidence'){a.confidence[q.id]=b.dataset.v;save();exam()}if(x==='flag'){const i=a.flags.indexOf(q.id);i>=0?a.flags.splice(i,1):a.flags.push(q.id);save();exam()}if(x==='prev'){a.current=Math.max(0,a.current-1);save();exam()}if(x==='next'){a.current=Math.min(a.total-1,a.current+1);save();exam()}if(x==='jump'){a.current=Number(b.dataset.i);save();exam()}if(x==='saveexit'){save();landing();toast('Attempt saved')}if(x==='submit')submit(false)}});
 applyTheme();landing();
