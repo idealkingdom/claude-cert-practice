@@ -88,7 +88,7 @@ function newAttempt(total){
 const completeAnswer=(a,id)=>Number.isInteger(a.answers?.[id]);
 const correctFor=(a,q)=>a.answers?.[q.id]===q.correct;
 const answered=a=>a.questionIds.filter(id=>completeAnswer(a,id)).length;
-function header(){return `<header class="ccarf-top"><a href="index.html" class="ccarf-back">← Practice</a><div><strong>CCAR-F Exam-Level Rotation</strong><span>BLUEPRINT-LOCKED FORMS</span></div><button class="ccarf-icon" data-act="theme">${theme()==='dark'?'☼':'◐'}</button></header>`}
+function header(){return `<header class="ccarf-top"><a href="index.html" class="ccarf-back">← Practice</a><div><strong>CCAR-F Exam-Level Rotation</strong><span>BLUEPRINT-LOCKED FORMS</span></div><nav class="ccarf-top-actions"><button class="ccarf-settings-link" data-act="settings">⚙ Settings</button><button class="ccarf-icon" data-act="theme" aria-label="Change theme">${theme()==='dark'?'☼':'◐'}</button></nav></header>`}
 function landing(){
  if(tick){clearInterval(tick);tick=null}
  const has=!!state.attempt,last=recent(1)[0],excluded=recentIds().size;
@@ -140,6 +140,36 @@ function review(id){
  const h=state.history.find(x=>x.id===id)||state.history[0];if(!h)return;const wrong=h.rows.filter(x=>!x.correct);
  app.innerHTML=`${header()}<main class="ccarf-shell"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Post-submit review</div><h1>${wrong.length} misses</h1></div><button class="btn" data-act="result" data-id="${h.id}">Results</button></div>${wrong.map((r,idx)=>{const q=qmap.get(r.id);if(!q)return'';const order=h.optionOrders?.[q.id]||[0,1,2,3];return `<article class="ccarf-review"><div class="ccarf-review-num">Miss ${idx+1} · ${esc(q.domain)} · ${esc(r.confidence||'No confidence')}</div><div class="ccarf-mini-scenario">${esc(scen[q.scenario].title)}</div><h3>${esc(q.stem)}</h3><div class="ccarf-review-options">${order.map((oi,di)=>`<div class="ccarf-review-option ${oi===q.correct?'right':''} ${oi===r.selected&&oi!==q.correct?'wrong':''}"><b>${String.fromCharCode(65+di)}${oi===q.correct?' · Best answer':oi===r.selected?' · Your answer':''}</b><span>${esc(q.options[oi].text)}</span></div>`).join('')}</div><div class="ccarf-key"><b>Decisive clue</b>${esc(q.key)}</div><div class="ccarf-key"><b>Why the distractor looked plausible</b>${esc(q.trap)}</div></article>`}).join('')}</main>`;
 }
-document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const x=b.dataset.act;if(x==='theme'){localStorage.setItem(THEME,theme()==='dark'?'light':'dark');applyTheme();state.attempt?exam():landing()}else if(x==='start')newAttempt(Number(b.dataset.total)||60);else if(x==='resume')exam();else if(x==='home')landing();else if(x==='result')result(b.dataset.id);else if(x==='review')review(b.dataset.id);else if(state.attempt){const a=state.attempt,q=qmap.get(a.questionIds[a.current]);if(x==='answer'){a.answers[q.id]=Number(b.dataset.oi);save();exam()}if(x==='confidence'){a.confidence[q.id]=b.dataset.v;save();exam()}if(x==='flag'){const i=a.flags.indexOf(q.id);i>=0?a.flags.splice(i,1):a.flags.push(q.id);save();exam()}if(x==='prev'){a.current=Math.max(0,a.current-1);save();exam()}if(x==='next'){a.current=Math.min(a.total-1,a.current+1);save();exam()}if(x==='jump'){a.current=Number(b.dataset.i);save();exam()}if(x==='saveexit'){save();landing();toast('Attempt saved')}if(x==='submit')submit(false)}});
+function settings(){
+ const active=state.attempt,completed=state.history?.length||0;
+ app.innerHTML=`${header()}<main class="ccarf-shell ccarf-settings"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Exam-level controls</div><h1>Settings</h1></div><button class="btn" data-act="${active?'resume':'home'}">${active?'Back to exam':'Back'}</button></div>
+ <section class="ccarf-setting-card"><div><h2>Current attempt</h2><p>${active?`${answered(active)}/${active.total} answered with ${fmt(active.remaining)} remaining.`:'There is no active exam attempt.'}</p></div><button class="btn" data-act="reset-current" ${active?'':'disabled'}>Discard current attempt</button></section>
+ <section class="ccarf-setting-card danger"><div><h2>Reset exam level from scratch</h2><p>Deletes the active attempt, all ${completed} saved result${completed===1?'':'s'}, confidence choices, flags, and rotation history. Your theme is kept.</p></div><button class="btn danger" data-act="reset-all">Reset everything</button></section></main>`;
+}
+function resetCurrent(){
+ if(!state.attempt)return;
+ if(!confirm('Discard this exam attempt? Answers, flags, and remaining time will be deleted.'))return;
+ if(tick){clearInterval(tick);tick=null}delete state.attempt;save();landing();toast('Current attempt discarded');
+}
+function resetAll(){
+ const completed=state.history?.length||0;
+ if(!confirm(`Reset exam level from scratch? This deletes the active attempt and ${completed} saved result${completed===1?'':'s'}.`))return;
+ if(tick){clearInterval(tick);tick=null}
+ for(const key of [KEY,OLD,'ccarf-sealed-final-v1'])localStorage.removeItem(key);
+ state={history:[],attempt:null};save();landing();toast('Exam level reset from scratch');
+}
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[data-act]');if(!b)return;const x=b.dataset.act;
+ if(x==='theme'){localStorage.setItem(THEME,theme()==='dark'?'light':'dark');applyTheme();document.querySelector('.ccarf-settings')?settings():state.attempt?exam():landing()}
+ else if(x==='settings')settings();
+ else if(x==='reset-current')resetCurrent();
+ else if(x==='reset-all')resetAll();
+ else if(x==='start')newAttempt(Number(b.dataset.total)||60);
+ else if(x==='resume')exam();
+ else if(x==='home')landing();
+ else if(x==='result')result(b.dataset.id);
+ else if(x==='review')review(b.dataset.id);
+ else if(state.attempt){const a=state.attempt,q=qmap.get(a.questionIds[a.current]);if(x==='answer'){a.answers[q.id]=Number(b.dataset.oi);save();exam()}if(x==='confidence'){a.confidence[q.id]=b.dataset.v;save();exam()}if(x==='flag'){const i=a.flags.indexOf(q.id);i>=0?a.flags.splice(i,1):a.flags.push(q.id);save();exam()}if(x==='prev'){a.current=Math.max(0,a.current-1);save();exam()}if(x==='next'){a.current=Math.min(a.total-1,a.current+1);save();exam()}if(x==='jump'){a.current=Number(b.dataset.i);save();exam()}if(x==='saveexit'){save();landing();toast('Attempt saved')}if(x==='submit')submit(false)}
+});
 applyTheme();landing();
 })();

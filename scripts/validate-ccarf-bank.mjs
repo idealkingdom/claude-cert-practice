@@ -50,18 +50,24 @@ assert(new Set(bank.questions.map(q => q.conceptId)).size >= 63, 'Decision finge
 
 const instrumented = appSource.replace(
   'applyTheme();landing();',
-  'window.__ccarfTest={buildForm,setState:value=>{state=value},DATA,qmap};'
+  'window.__ccarfTest={buildForm,resetAll,setState:value=>{state=value},getState:()=>state,DATA,qmap};'
 );
+const storage = new Map();
 const appSandbox = {
   window: { CCARF_FINAL_BANK: bank },
   document: {
     getElementById: () => ({}),
     addEventListener: () => {},
+    createElement: () => ({ remove: () => {} }),
     documentElement: { dataset: {} },
-    querySelector: () => ({ content: '' }),
+    querySelector: selector => selector.startsWith('meta') ? { content: '' } : null,
     body: { appendChild: () => {} }
   },
-  localStorage: { getItem: () => null, setItem: () => {} },
+  localStorage: {
+    getItem: key => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: key => storage.delete(key)
+  },
   crypto: webcrypto,
   console,
   setInterval,
@@ -94,6 +100,17 @@ for (const total of [30, 60]) {
     history.splice(30);
   }
 }
+
+storage.set('claude-cert-theme', 'light');
+storage.set('ccarf-rotation-final-v3', 'old');
+storage.set('ccarf-rotation-final-v2', 'old');
+storage.set('ccarf-sealed-final-v1', 'old');
+test.setState({ history: [{ id: 'old-result' }], attempt: { id: 'old-attempt' } });
+test.resetAll();
+assert(test.getState().history.length === 0 && !test.getState().attempt, 'Full reset did not clear in-memory exam state.');
+assert(!storage.has('ccarf-rotation-final-v3') || storage.get('ccarf-rotation-final-v3') === '{"history":[],"attempt":null}', 'Full reset retained current exam data.');
+assert(!storage.has('ccarf-rotation-final-v2') && !storage.has('ccarf-sealed-final-v1'), 'Full reset retained legacy exam data.');
+assert(storage.get('claude-cert-theme') === 'light', 'Full reset should preserve the selected theme.');
 
 if (failures.length) {
   console.error(failures.map(message => `- ${message}`).join('\n'));
