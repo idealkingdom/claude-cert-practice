@@ -24,6 +24,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Validate exam practice
+        run: |
+          node --check ccarf-final.js
+          node scripts/validate-ccarf-bank.mjs
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
@@ -45,3 +50,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+

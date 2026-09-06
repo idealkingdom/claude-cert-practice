@@ -1,174 +1,108 @@
 (()=>{
-const DATA=window.CCARF_FINAL_BANK;
-const app=document.getElementById('ccarf-final-app');
-const KEY='ccarf-rotation-final-v4', LEGACY=['ccarf-rotation-final-v3','ccarf-rotation-final-v2','ccarf-sealed-final-v1'], THEME='claude-cert-theme';
-const D=Object.keys(DATA.exam.quotas60), qmap=new Map(DATA.questions.map(q=>[q.id,q])), scen=DATA.scenarios;
-let tick=null,toastTimer=null;
+'use strict';
+const DATA=window.CCARF_FINAL_BANK,app=document.getElementById('ccarf-final-app');
+if(!DATA?.questions?.length){app.innerHTML='<main><h1>Practice could not load</h1><p>Reload to download the question bank.</p></main>';return;}
+const KEY='ccarf-rotation-final-v4',LEGACY=['ccarf-rotation-final-v3','ccarf-rotation-final-v2','ccarf-sealed-final-v1'],THEME='claude-cert-theme';
+const D=Object.keys(DATA.exam.quotas60),qmap=new Map([...(DATA.archive||[]),...DATA.questions].map(q=>[q.id,q]));
+let tick=null,toastTimer=null,screen={name:'home'},navigatorOpen=false,navFilter='all',storageError=false,recoveryNotice='';
+const esc=(s='')=>String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const rich=s=>esc(s).replace(/`([^`]+)`/g,'<code>$1</code>');
+const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+function read(key){try{return localStorage.getItem(key)}catch{storageError=true;return null}}
+function write(key,value){try{localStorage.setItem(key,value);storageError=false;return true}catch{storageError=true;return false}}
+function remove(key){try{localStorage.removeItem(key);return true}catch{storageError=true;return false}}
+const targets=q=>q.correctAnswers||[q.correct];
+const selections=(a,id)=>Array.isArray(a.answers?.[id])?a.answers[id]:Number.isInteger(a.answers?.[id])?[a.answers[id]]:[];
+const completeAnswer=(a,id)=>selections(a,id).length===targets(qmap.get(id)).length;
+const correctFor=(a,q)=>{const v=selections(a,q.id),t=targets(q);return v.length===t.length&&t.every(i=>v.includes(i))};
+const answered=a=>a.questionIds.filter(id=>completeAnswer(a,id)).length;
+function scoreAttempt(a){
+ const rows=a.questionIds.map(id=>{const q=qmap.get(id);return {id,correct:correctFor(a,q),domain:q.domain,confidence:a.confidence[id]||'',selected:selections(a,id),flag:a.flags.includes(id)}}),correctCount=rows.filter(r=>r.correct).length,domains={};
+ for(const d of D){const r=rows.filter(x=>x.domain===d),n=r.filter(x=>x.correct).length;domains[d]={correct:n,total:r.length,percent:r.length?Math.round(n/r.length*100):0};}
+ return {rows,correctCount,percent:Math.round(correctCount/a.total*1000)/10,domains,highMiss:rows.filter(r=>!r.correct&&r.confidence==='High').length};
+}
+function validAttempt(a){
+ if(!object(a)||typeof a.id!=='string'||![30,60].includes(a.total)||!Array.isArray(a.questionIds)||a.questionIds.length!==a.total||new Set(a.questionIds).size!==a.total||!a.questionIds.every(id=>qmap.has(id)))return null;
+ if(!object(a.optionOrders)||!a.questionIds.every(id=>{const o=a.optionOrders[id],q=qmap.get(id);return Array.isArray(o)&&o.length===q.options.length&&new Set(o).size===o.length&&o.every(v=>Number.isInteger(v)&&v>=0&&v<q.options.length)}))return null;
+ if(!Number.isFinite(a.remaining)||a.remaining<0||a.remaining>a.total*120)return null;
+ const c={...a,current:Math.min(a.total-1,Math.max(0,Number.isInteger(a.current)?a.current:0)),answers:{},confidence:{},flags:[]};
+ for(const id of a.questionIds){const v=selections(a,id),q=qmap.get(id);if(v.length<=targets(q).length&&new Set(v).size===v.length&&v.every(i=>Number.isInteger(i)&&i>=0&&i<q.options.length))c.answers[id]=v;if(['Low','Medium','High'].includes(a.confidence?.[id]))c.confidence[id]=a.confidence[id];}
+ c.flags=[...new Set(Array.isArray(a.flags)?a.flags.filter(id=>a.questionIds.includes(id)):[])];
+ if(!Number.isFinite(a.deadline))delete c.deadline;
+ return c;
+}
 function load(){
-  try{
-    const now=JSON.parse(localStorage.getItem(KEY)||'null'); if(now)return {...now,history:now.history||[]};
-    return {history:[],attempt:null};
-  }catch{return {history:[],attempt:null}}
+ const raw=read(KEY);if(!raw)return {history:[],attempt:null};
+ try{const v=JSON.parse(raw);if(!object(v))throw Error('Invalid state');
+ const history=(Array.isArray(v.history)?v.history:[]).map(h=>{const a=validAttempt(h);if(!a||typeof h.completedAt!=='string')return null;delete a.deadline;return {...a,...scoreAttempt(a)};}).filter(Boolean).slice(0,30);
+ const attempt=validAttempt(v.attempt);if(v.attempt&&!attempt){recoveryNotice='The saved attempt could not be restored. A backup was kept; valid results are still available.';write(`${KEY}-recovery`,raw);}return {history,attempt};
+ }catch{recoveryNotice='Saved practice data could not be read. A backup was kept so you can start a new attempt.';write(`${KEY}-recovery`,raw);return {history:[],attempt:null};}
 }
 let state=load();
-const save=()=>localStorage.setItem(KEY,JSON.stringify(state));
-const esc=(s='')=>String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+function save(){const ok=write(KEY,JSON.stringify(state));const el=document.getElementById('ccarf-storage-warning');if(el)el.hidden=ok;return ok;}
 function rnd(n){const a=new Uint32Array(1);crypto.getRandomValues(a);return a[0]%n}
 function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]]}return a}
-function fmt(sec){sec=Math.max(0,sec|0);const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
-function theme(){return localStorage.getItem(THEME)||'dark'}
-function applyTheme(){document.documentElement.dataset.theme=theme();document.querySelector('meta[name="theme-color"]').content=theme()==='dark'?'#111310':'#f4f2ec'}
-function toast(t){let el=document.querySelector('.ccarf-toast');if(!el){el=document.createElement('div');el.className='ccarf-toast';document.body.appendChild(el)}el.textContent=t;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.remove(),2200)}
-function recent(n=3){return (state.history||[]).filter(h=>Array.isArray(h.questionIds)&&h.questionIds.some(id=>qmap.has(id))).slice(0,n)}
-function recentIds(){const s=new Set();for(const h of recent(3))for(const id of h.questionIds||[])if(qmap.has(id))s.add(id);return s}
-function recentFamilies(){const m=new Map();for(const h of recent(3))for(const id of h.questionIds||[]){const q=qmap.get(id);if(q)m.set(q.family,(m.get(q.family)||0)+1)}return m}
-function recentConcepts(){const m=new Map();for(const h of recent(3))for(const id of h.questionIds||[]){const q=qmap.get(id);if(q)m.set(q.conceptId,(m.get(q.conceptId)||0)+1)}return m}
-function scenarioUse(){const m=new Map(Object.keys(scen).map(x=>[x,0]));for(const h of recent(3))for(const sid of h.scenarioIds||[])m.set(sid,(m.get(sid)||0)+1);return m}
-const ROW_A={[D[0]]:4,[D[1]]:3,[D[2]]:3,[D[3]]:3,[D[4]]:2};
-const ROW_B={[D[0]]:4,[D[1]]:2,[D[2]]:3,[D[3]]:3,[D[4]]:3};
-function scenarioSets(total){
-  const use=scenarioUse(), left=['support','research','ci'], right=['migration','productivity','extract'], sets=[];
-  if(total===60){
-    for(let a=0;a<left.length;a++)for(let b=a+1;b<left.length;b++)for(let c=0;c<right.length;c++)for(let d=c+1;d<right.length;d++)sets.push([left[a],left[b],right[c],right[d]]);
-  }else{
-    for(const a of left)for(const b of right)sets.push([a,b]);
-  }
-  return shuffle(sets).sort((a,b)=>a.reduce((n,s)=>n+(use.get(s)||0),0)-b.reduce((n,s)=>n+(use.get(s)||0),0));
-}
-function assignDomain(sids,rows,domain,excluded,conceptUse,famUse){
-  const slots=[];
-  for(let i=0;i<sids.length;i++)for(let n=0;n<rows[i][domain];n++)slots.push(sids[i]);
-  const available=DATA.questions.filter(q=>q.domain===domain&&!excluded.has(q.id));
-  const edges=slots.map(sid=>{
-    const ids=[...new Set(available.filter(q=>q.scenario===sid).map(q=>q.conceptId))];
-    return shuffle(ids).sort((a,b)=>(conceptUse.get(a)||0)-(conceptUse.get(b)||0));
-  });
-  const owner=new Map(), assigned=Array(slots.length);
-  function claim(slot,seen){
-    for(const concept of edges[slot]){
-      if(seen.has(concept))continue;seen.add(concept);
-      const occupied=owner.get(concept);
-      if(occupied===undefined||claim(occupied,seen)){owner.set(concept,slot);assigned[slot]=concept;return true}
-    }
-    return false;
-  }
-  const order=slots.map((_,i)=>i).sort((a,b)=>edges[a].length-edges[b].length);
-  for(const slot of order)if(!claim(slot,new Set()))throw new Error(`No decision-unique assignment for ${domain}.`);
-  return slots.map((sid,i)=>{
-    const choices=shuffle(available.filter(q=>q.scenario===sid&&q.conceptId===assigned[i])).sort((a,b)=>(famUse.get(a.family)||0)-(famUse.get(b.family)||0));
-    if(!choices.length)throw new Error(`No authored case for ${sid} / ${domain}.`);
-    return choices[0];
-  });
-}
+function fmt(sec){sec=Math.max(0,Math.ceil(sec));return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`}
+let selectedTheme=read(THEME)==='light'?'light':'dark';
+function applyTheme(){document.documentElement.dataset.theme=selectedTheme;document.querySelector('meta[name="theme-color"]').content=selectedTheme==='dark'?'#121715':'#f5f6f2';const b=document.querySelector('[data-act="theme"]');if(b){b.textContent=selectedTheme==='dark'?'☼':'◐';b.setAttribute('aria-label',`Use ${selectedTheme==='dark'?'light':'dark'} theme`);}}
+function toast(t){const el=document.getElementById('ccarf-toast');if(!el)return;el.textContent=t;el.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{el.hidden=true},3500);}
+function syncClock(){const a=state.attempt;if(a&&Number.isFinite(a.deadline))a.remaining=Math.max(0,Math.ceil((a.deadline-Date.now())/1000));return a?.remaining||0;}
+function stopTick(){if(tick){clearInterval(tick);tick=null;}}
+function startTick(){if(tick||!state.attempt?.deadline)return;tick=setInterval(()=>{if(!state.attempt?.deadline){stopTick();return;}syncClock();for(const el of document.querySelectorAll('[data-clock]')){el.textContent=fmt(state.attempt.remaining);el.classList.toggle('urgent',state.attempt.remaining<=300);}if(state.attempt.remaining===0)submit(true);},1000);}
 function buildForm(total){
-  const excluded=recentIds(), famUse=recentFamilies(), conceptUse=recentConcepts(), rows=total===60?[ROW_A,ROW_A,ROW_A,ROW_B]:[ROW_A,ROW_B];
-  let lastError;
-  for(const base of scenarioSets(total))for(let attempt=0;attempt<12;attempt++){
-    const sids=shuffle(base), byScenario=new Map(sids.map(s=>[s,[]]));
-    try{
-      for(const domain of D)for(const q of assignDomain(sids,rows,domain,excluded,conceptUse,famUse))byScenario.get(q.scenario).push(q);
-      const selected=sids.flatMap(sid=>shuffle(byScenario.get(sid)));
-      if(selected.length!==total||new Set(selected.map(q=>q.id)).size!==total)throw new Error('Question identifiers are not unique.');
-      if(new Set(selected.map(q=>q.conceptId)).size!==total)throw new Error('Decision fingerprints are not unique.');
-      if(sids.some(sid=>byScenario.get(sid).length!==15))throw new Error('Scenario block did not resolve to 15 questions.');
-      const optionOrders={};for(const q of selected)optionOrders[q.id]=shuffle([0,1,2,3]);
-      return {questionIds:selected.map(q=>q.id),optionOrders,scenarioIds:sids};
-    }catch(error){lastError=error}
-  }
-  throw lastError||new Error('Could not assemble a decision-unique form.');
+ if(![30,60].includes(total))throw Error('Unsupported form length');const quotas=total===60?DATA.exam.quotas60:DATA.exam.quotas30,seenAt=new Map(),conceptAt=new Map();
+ state.history.forEach((h,i)=>{for(const id of h.questionIds||[]){if(!seenAt.has(id))seenAt.set(id,i);const q=qmap.get(id);if(q&&!conceptAt.has(q.conceptId))conceptAt.set(q.conceptId,i);}});
+ const freshness=q=>seenAt.has(q.id)?100-seenAt.get(q.id):0,selected=[];
+ for(const domain of D){const used=new Set(),pool=shuffle(DATA.questions.filter(q=>q.domain===domain));pool.sort((a,b)=>freshness(a)-freshness(b)||(conceptAt.has(a.conceptId)?100-conceptAt.get(a.conceptId):0)-(conceptAt.has(b.conceptId)?100-conceptAt.get(b.conceptId):0));
+ const multi=pool.find(q=>targets(q).length>1);if(multi){selected.push(multi);used.add(multi.conceptId);}for(const q of pool){if(used.size>=quotas[domain])break;if(used.has(q.conceptId))continue;used.add(q.conceptId);selected.push(q);}if(used.size!==quotas[domain])throw Error(`Insufficient distinct decisions for ${domain}`);}
+ const ordered=shuffle(selected),optionOrders={};for(const q of ordered)optionOrders[q.id]=shuffle(q.options.map((_,i)=>i));return {questionIds:ordered.map(q=>q.id),optionOrders,scenarioIds:[],repeatedCount:ordered.filter(q=>seenAt.has(q.id)).length};
 }
-function newAttempt(total){
-  try{
-    const form=buildForm(total);
-    state.attempt={id:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7),createdAt:new Date().toISOString(),total,remaining:total*120,current:0,answers:{},confidence:{},flags:[],...form};
-    save();exam();
-  }catch(e){console.error(e);toast('Could not build a fresh form. Clear old rotation history if this persists.')}
-}
-const completeAnswer=(a,id)=>Number.isInteger(a.answers?.[id]);
-const correctFor=(a,q)=>a.answers?.[q.id]===q.correct;
-const answered=a=>a.questionIds.filter(id=>completeAnswer(a,id)).length;
-function header(){return `<header class="ccarf-top"><a href="index.html" class="ccarf-back">← Practice</a><div><strong>CCAR-F Exam-Level Rotation</strong><span>ADVERSARIAL HARD MODE · V4</span></div><nav class="ccarf-top-actions"><button class="ccarf-settings-link" data-act="settings">⚙ Settings</button><button class="ccarf-icon" data-act="theme" aria-label="Change theme">${theme()==='dark'?'☼':'◐'}</button></nav></header>`}
-function landing(){
- if(tick){clearInterval(tick);tick=null}
- const has=!!state.attempt,last=recent(1)[0],excluded=recentIds().size;
- app.innerHTML=`${header()}<main class="ccarf-shell"><section class="ccarf-hero">
- <div class="ccarf-kicker">Architect Foundations · hard rotating simulation</div>
- <h1>One operational decision per question.</h1>
- <p>Scenario-heavy cases cover all 30 CCAR-F task statements. Every option is a credible technique; the decisive constraint separates the right layer and sequence from plausible near-neighbours.</p>
- <div class="ccarf-callout"><strong>Rotation rule</strong><span>${excluded?`${excluded} recent cases are locked out; decision fingerprints must also be unique inside this form.`:'Your first form will contain no repeated decision fingerprint.'}</span></div>
- <div class="ccarf-actions">
-   ${has?'<button class="btn primary" data-act="resume">Resume current attempt</button>':''}
-   ${!has?'<button class="btn primary" data-act="start" data-total="60">60 questions · 120 min</button><button class="btn" data-act="start" data-total="30">30 questions · 60 min</button>':''}
-   <a class="btn ghost" href="ccarf-labs.html">Hands-on labs</a><a class="btn ghost" href="learn.html?cert=architectF">Learn</a>
- </div></section>
- <section class="ccarf-metrics"><article><b>0</b><span>repeated decisions per form</span></article><article><b>3</b><span>prior attempts excluded</span></article><article><b>30/60</b><span>question modes</span></article><article><b>6</b><span>shared scenarios</span></article></section>
- ${last?`<section class="ccarf-last"><div><span>Latest rotation result</span><strong>${last.percent}%</strong></div><div>${esc(last.verdict)}</div><button class="btn ghost" data-act="result" data-id="${last.id}">Review</button></section>`:''}
- <section class="ccarf-blueprint"><h2>Blueprint per form</h2>${D.map(d=>`<div><span>${esc(d)}</span><b>${DATA.exam.quotas60[d]} / ${DATA.exam.quotas30[d]}</b></div>`).join('')}<small>Values show 60-question / 30-question quotas.</small></section>
- <p class="ccarf-note">Question text is original. Difficulty comes from competing, plausible actions and a decisive operational constraint—not from decorative wording or answer-length cues. No live exam questions are reproduced.</p></main>`;
+function newAttempt(total){if(state.attempt){toast('Resume or discard your current attempt before starting another.');return;}try{const form=buildForm(total);state.attempt={id:crypto.randomUUID(),createdAt:new Date().toISOString(),bankVersion:DATA.version,total,remaining:total*120,deadline:Date.now()+total*120000,current:0,answers:{},confidence:{},flags:[],...form};save();navigatorOpen=false;navFilter='all';exam();focusQuestion();}catch(e){console.error(e);toast('The form could not be assembled. Reload and try again.');}}
+function header(){return `<header class="ccarf-top"><a href="index.html" class="ccarf-back">← Practice</a><button class="ccarf-brand" data-act="home"><strong>Architect Foundations</strong><span>EXAM PRACTICE · V5</span></button><nav aria-label="Practice controls"><button class="ccarf-settings-link" data-act="settings">Settings</button><button class="ccarf-icon" data-act="theme" aria-label="Use ${selectedTheme==='dark'?'light':'dark'} theme">${selectedTheme==='dark'?'☼':'◐'}</button></nav></header>`;}
+function shell(content){if(!content.includes('id="main"'))content=content.replace('<main','<main id="main"');app.innerHTML=`${header()}<div class="ccarf-notices"><p id="ccarf-storage-warning" role="alert" ${storageError?'':'hidden'}>Browser storage is unavailable. Work is held in this tab but may be lost when you close it.</p>${recoveryNotice?`<p role="status">${esc(recoveryNotice)}</p>`:''}</div>${content}<div id="ccarf-toast" class="ccarf-toast" role="status" aria-live="polite" hidden></div>`;applyTheme();startTick();}
+function landing(){screen={name:'home'};syncClock();const a=state.attempt,last=state.history[0];
+ shell(`<main class="ccarf-shell" id="main"><section class="ccarf-hero"><div><div class="ccarf-kicker">Practice with purpose</div><h1>Read the evidence.<br>Make the decision.</h1><p>Original architecture cases across five domains. Work through competing approaches, specific constraints, and questions with one or more correct choices.</p><div class="ccarf-tags"><span>${DATA.questions.length} distinct cases</span><span>30 mapped topics</span><span>Sources checked ${esc(DATA.reviewedOn)}</span></div></div><aside class="ccarf-start"><h2>${a?'Continue your attempt':'Choose your session'}</h2>${a?`<p>${answered(a)} of ${a.total} answered · <b data-clock>${fmt(a.remaining)}</b> left</p><button class="btn primary" data-act="resume">Resume attempt →</button><button class="btn" data-act="settings">Manage or reset attempt</button>`:`<button class="btn primary" data-act="start" data-total="60"><span>Full practice</span><small>60 questions · 120 minutes</small></button><button class="btn" data-act="start" data-total="30"><span>Focused practice</span><small>30 questions · 60 minutes</small></button>`}<p class="ccarf-small">Timed sessions continue while you leave the page. Answers save on selection. Submit to unlock explanations.</p></aside></section>
+ <div class="ccarf-home-grid"><section class="ccarf-card"><div class="ccarf-sectionhead"><h2>Domain coverage</h2><span class="ccarf-small">Full / focused</span></div>${D.map((d,i)=>`<div class="ccarf-domain-row"><span class="ccarf-domain-index">0${i+1}</span><span>${esc(d)}<small>${[27,18,20,20,15][i]}% blueprint weight</small></span><b>${DATA.exam.quotas60[d]} / ${DATA.exam.quotas30[d]}</b></div>`).join('')}</section><div class="ccarf-side-stack"><section class="ccarf-card"><h2>Your progress</h2>${last?`<div class="ccarf-last-score">${last.percent}<small>%</small></div><p>${last.correctCount}/${last.total} correct on your latest attempt.</p><button class="btn" data-act="result" data-id="${esc(last.id)}">View results</button>`:'<p>Your first result will appear here with a breakdown by domain.</p>'}</section><section class="ccarf-card"><h2>A clearer question bank</h2><p>Repeated templates are excluded from new forms. Each form tests a decision once. Previously seen questions return when needed to meet the domain weights.</p><button class="btn ghost" data-act="sources">Explore topics & sources →</button></section></div></div><section class="ccarf-resource-bar"><a href="ccarf-labs.html">Hands-on labs ↗</a><a href="learn.html?cert=architectF">Learning guide ↗</a><button data-act="settings">Reset practice</button></section><p class="ccarf-note">Independent preparation using public study guides and primary documentation. Practice scores are not official scaled scores or pass predictions. This bank uses standalone scenarios; it does not reproduce a live exam form.</p></main>`);
 }
 function exam(){
- const a=state.attempt;if(!a)return landing();const q=qmap.get(a.questionIds[a.current]);if(!q)return landing();
- const order=a.optionOrders[q.id],block=scen[q.scenario],ans=a.answers[q.id],conf=a.confidence[q.id]||'',n=a.total;
- const nums=a.questionIds.map((id,i)=>`<button class="ccarf-navnum ${i===a.current?'current':''} ${completeAnswer(a,id)?'done':''} ${a.flags.includes(id)?'flag':''}" data-act="jump" data-i="${i}">${i+1}</button>`).join('');
- app.innerHTML=`${header()}<main class="ccarf-exam"><section class="ccarf-exam-head"><div><span>Question ${a.current+1} of ${n}</span><b>${esc(q.domain)}</b></div><div id="ccarf-timer">${fmt(a.remaining)}</div></section>
- <article class="ccarf-scenario"><div>${esc(block.title)}</div><p>${esc(block.text)}</p></article>
- <article class="ccarf-question"><div class="ccarf-stem">${esc(q.stem)}</div><div class="ccarf-options">${order.map((oi,di)=>`<button class="ccarf-option ${ans===oi?'selected':''}" data-act="answer" data-oi="${oi}"><span>${String.fromCharCode(65+di)}</span><p>${esc(q.options[oi].text)}</p></button>`).join('')}</div></article>
- <section class="ccarf-confidence"><span>Confidence</span>${['Low','Medium','High'].map(x=>`<button class="${conf===x?'on':''}" data-act="confidence" data-v="${x}">${x}</button>`).join('')}<button class="${a.flags.includes(q.id)?'on':''}" data-act="flag">⚑ Flag</button></section>
- <section class="ccarf-controls"><button class="btn" data-act="prev" ${a.current===0?'disabled':''}>Previous</button><button class="btn" data-act="saveexit">Save & exit</button>${a.current<n-1?'<button class="btn primary" data-act="next">Next</button>':'<button class="btn primary" data-act="submit">Submit</button>'}</section>
- <details class="ccarf-navigator"><summary>${answered(a)}/${n} answered · navigator</summary><div>${nums}</div></details></main>`;startTick();
+ const a=state.attempt;if(!a)return landing();syncClock();if(a.deadline&&a.remaining===0)return submit(true);if(!a.deadline){a.deadline=Date.now()+a.remaining*1000;save();}screen={name:'exam'};
+ const q=qmap.get(a.questionIds[a.current]),order=a.optionOrders[q.id],selected=selections(a,q.id),need=targets(q).length,conf=a.confidence[q.id]||'',done=answered(a);
+ const nums=a.questionIds.map((id,i)=>{const complete=completeAnswer(a,id),flag=a.flags.includes(id);if(navFilter==='unanswered'&&complete||navFilter==='flagged'&&!flag)return '';return `<button class="ccarf-navnum ${i===a.current?'current':''} ${complete?'done':''} ${flag?'flag':''}" data-act="jump" data-i="${i}" aria-label="Question ${i+1}, ${complete?'answered':'unanswered'}${flag?', flagged':''}" ${i===a.current?'aria-current="step"':''}>${i+1}${flag?'<span aria-hidden="true">•</span>':''}</button>`;}).join('');
+ shell(`<main class="ccarf-exam" id="main"><div class="ccarf-exam-head"><div><span class="ccarf-kicker">Question ${a.current+1} / ${a.total}</span><p>${esc(q.domain)}</p></div><div class="ccarf-clock"><small>Time remaining</small><b data-clock role="timer" aria-label="Time remaining">${fmt(a.remaining)}</b></div></div><progress value="${done}" max="${a.total}" aria-label="Answered questions">${done}/${a.total}</progress><div class="ccarf-exam-layout"><section class="ccarf-question"><div class="ccarf-sectionhead"><span class="ccarf-count-label">${need>1?`Select ${need} answers`:'Select one answer'}</span><button class="ccarf-flag ${a.flags.includes(q.id)?'on':''}" data-act="flag" aria-pressed="${a.flags.includes(q.id)}">${a.flags.includes(q.id)?'⚑ Flagged':'⚑ Flag for review'}</button></div><h1 class="ccarf-stem" tabindex="-1">${rich(q.stem)}</h1><div class="ccarf-options" role="group" aria-label="Answer choices; select ${need}">${order.map((oi,di)=>`<button class="ccarf-option ${selected.includes(oi)?'selected':''}" data-act="answer" data-oi="${oi}" aria-pressed="${selected.includes(oi)}"><span class="ccarf-letter">${String.fromCharCode(65+di)}</span><span>${rich(q.options[oi].text)}</span><span class="ccarf-check" aria-hidden="true">${selected.includes(oi)?'✓':''}</span></button>`).join('')}</div><p class="ccarf-selection-status" role="status">${selected.length} of ${need} selected${need>1?' · All correct choices required; no partial credit.':''}</p><div class="ccarf-confidence" role="group" aria-label="Optional confidence"><span>Confidence <small>optional</small></span>${['Low','Medium','High'].map(x=>`<button class="${conf===x?'on':''}" data-act="confidence" data-v="${x}" aria-pressed="${conf===x}">${x}</button>`).join('')}<button class="ccarf-clear" data-act="clear" ${selected.length?'':'disabled'}>Clear answer</button></div><div class="ccarf-controls"><button class="btn" data-act="prev" ${a.current===0?'disabled':''}>← Previous</button><button class="btn primary" data-act="${a.current<a.total-1?'next':'finish'}">${a.current<a.total-1?'Next →':'Review & submit'}</button></div></section><aside class="ccarf-exam-sidebar"><details class="ccarf-navigator" ${navigatorOpen?'open':''}><summary>Question navigator <span>${done}/${a.total}</span></summary><div class="ccarf-navfilters" role="group" aria-label="Filter question navigator">${['all','unanswered','flagged'].map(x=>`<button data-act="navfilter" data-filter="${x}" aria-pressed="${navFilter===x}">${x==='all'?'All':x==='unanswered'?'Unanswered':'Flagged'}</button>`).join('')}</div><div class="ccarf-navgrid">${nums||'<p>No questions match this filter.</p>'}</div><p class="ccarf-small">Filled = answered · dot = flagged</p></details><div class="ccarf-session-actions"><button class="btn" data-act="finish">Review & submit</button><button class="btn ghost" data-act="saveexit">Save & exit</button><p class="ccarf-small">The timer continues until submission.</p></div><p class="ccarf-shortcuts">Keys 1–${q.options.length}: choose answer<br>Use Tab to reach every control.</p></aside></div></main>`);
 }
-function startTick(){if(tick)clearInterval(tick);tick=setInterval(()=>{const a=state.attempt;if(!a){clearInterval(tick);tick=null;return}a.remaining=Math.max(0,a.remaining-1);if(a.remaining%5===0)save();const el=document.getElementById('ccarf-timer');if(el)el.textContent=fmt(a.remaining);if(a.remaining===0)submit(true)},1000)}
-function submit(auto=false){
- const a=state.attempt;if(!a)return;const n=a.total,unanswered=n-answered(a);if(!auto&&unanswered&&!confirm(`${unanswered} question${unanswered===1?' is':'s are'} unanswered. Submit anyway?`))return;
- const rows=a.questionIds.map(id=>{const q=qmap.get(id);return {id,correct:correctFor(a,q),domain:q.domain,confidence:a.confidence[id]||'',selected:a.answers[id],flag:a.flags.includes(id)}});
- const correct=rows.filter(x=>x.correct).length,percent=Math.round(correct/n*1000)/10,domains={};
- const quotas=n===60?DATA.exam.quotas60:DATA.exam.quotas30;
- for(const d of D){const rr=rows.filter(x=>x.domain===d);domains[d]={correct:rr.filter(x=>x.correct).length,total:rr.length,percent:Math.round(rr.filter(x=>x.correct).length/rr.length*100)}}
- const highMiss=rows.filter(x=>!x.correct&&x.confidence==='High').length,weakest=Math.min(...Object.values(domains).map(x=>x.percent));let verdict;
- if(percent>=90&&weakest>=80&&highMiss<=1)verdict='PASS CONFIDENTLY — exam-level rotation signal';else if(percent>=82&&weakest>=70)verdict='LIKELY PASS — repair the misses before exam day';else verdict='KEEP HARDENING — this form exposed real gaps';
- const h={...a,completedAt:new Date().toISOString(),correctCount:correct,percent,domains,highMiss,verdict,rows};state.history.unshift(h);state.history=state.history.slice(0,30);delete state.attempt;save();if(tick){clearInterval(tick);tick=null}result(h.id);
+function focusQuestion(){const h=document.querySelector('.ccarf-stem');if(h){h.focus({preventScroll:true});h.scrollIntoView({block:'start'});}}
+function rerenderAnswer(b){const {oi,v,act}=b.dataset;exam();document.querySelector(`[data-act="${act}"]${oi!==undefined?`[data-oi="${oi}"]`:v?`[data-v="${v}"]`:''}`)?.focus({preventScroll:true});}
+function choose(oi){const a=state.attempt,q=qmap.get(a.questionIds[a.current]);if(!Number.isInteger(oi)||oi<0||oi>=q.options.length)return;const v=selections(a,q.id),need=targets(q).length;if(need===1)a.answers[q.id]=[oi];else if(v.includes(oi))a.answers[q.id]=v.filter(i=>i!==oi);else if(v.length<need)a.answers[q.id]=[...v,oi];else{toast(`Choose exactly ${need}. Deselect one answer before adding another.`);return;}save();return true;}
+function finish(){const a=state.attempt;if(!a)return landing();screen={name:'finish'};syncClock();const missing=a.total-answered(a);shell(`<main class="ccarf-shell narrow"><section class="ccarf-card"><div class="ccarf-kicker">Before you submit</div><h1>Review your attempt</h1><p><b>${answered(a)}/${a.total}</b> answered · <b>${a.flags.length}</b> flagged · <b data-clock>${fmt(a.remaining)}</b> remaining</p><p>${missing?`${missing} questions are unanswered or have an incomplete selection. They will be scored incorrect.`:'Every question has the required number of selections.'}</p><div class="ccarf-actions"><button class="btn" data-act="resume">Back to exam</button>${missing?'<button class="btn" data-act="first-unanswered">Go to unanswered</button>':''}${a.flags.length?'<button class="btn" data-act="first-flagged">Go to flagged</button>':''}<button class="btn primary" data-act="submit">Submit attempt</button></div><p class="ccarf-small">Submission ends the timer and unlocks every answer explanation.</p></section></main>`);}
+function submit(auto=false){const a=state.attempt;if(!a)return;if(!auto&&!confirm('Submit this attempt? Answers will be locked and explanations shown.'))return;syncClock();
+ const rows=a.questionIds.map(id=>{const q=qmap.get(id);return {id,correct:correctFor(a,q),domain:q.domain,confidence:a.confidence[id]||'',selected:selections(a,id),flag:a.flags.includes(id)}}),correct=rows.filter(r=>r.correct).length,percent=Math.round(correct/a.total*1000)/10,domains={};
+ for(const d of D){const r=rows.filter(x=>x.domain===d);domains[d]={correct:r.filter(x=>x.correct).length,total:r.length,percent:Math.round(r.filter(x=>x.correct).length/r.length*100)}}
+ const h={...a,completedAt:new Date().toISOString(),correctCount:correct,percent,domains,highMiss:rows.filter(r=>!r.correct&&r.confidence==='High').length,rows,autoSubmitted:auto};delete h.deadline;state.history=[h,...state.history.filter(x=>x.id!==h.id)].slice(0,30);state.attempt=null;stopTick();save();result(h.id);
 }
-function result(id){
- const h=state.history.find(x=>x.id===id)||state.history[0];if(!h)return landing();const wrong=h.rows.filter(x=>!x.correct),tr={};for(const r of wrong){const q=qmap.get(r.id);if(q)tr[q.trap]=(tr[q.trap]||0)+1}const traps=Object.entries(tr).sort((a,b)=>b[1]-a[1]).slice(0,6);
- app.innerHTML=`${header()}<main class="ccarf-shell"><section class="ccarf-result"><div class="ccarf-kicker">${h.total}-question rotation</div><div class="ccarf-score">${h.percent}%</div><h1>${esc(h.verdict)}</h1><p>${h.correctCount}/${h.total} correct · ${wrong.length} misses · ${h.highMiss} high-confidence miss${h.highMiss===1?'':'es'}.</p></section>
- <section class="ccarf-domain-grid">${Object.entries(h.domains).map(([d,x])=>`<article><span>${esc(d)}</span><b>${x.percent}%</b><small>${x.correct}/${x.total}</small></article>`).join('')}</section>
- <section class="ccarf-traps"><h2>What fooled you</h2>${traps.length?traps.map(([t,n])=>`<div><span>${esc(t)}</span><b>${n}</b></div>`).join(''):'<p>No wrong-answer trap pattern to report.</p>'}</section>
- <section class="ccarf-actions"><button class="btn primary" data-act="review" data-id="${h.id}">Review misses</button><button class="btn" data-act="home">Back</button><button class="btn ghost" data-act="start" data-total="${h.total}">Fresh ${h.total}</button></section></main>`;
+function getResult(id){return state.history.find(h=>h.id===id)||state.history[0];}
+function result(id){const h=getResult(id);if(!h)return landing();screen={name:'result',id:h.id};shell(`<main class="ccarf-shell"><section class="ccarf-result"><div><div class="ccarf-kicker">${h.total}-question practice result</div><h1>${h.percent>=85?'Strong practice result':h.percent>=65?'Build on what you know':'Make the next attempt count'}</h1><p>${h.correctCount}/${h.total} correct · ${h.highMiss} high-confidence misses${h.autoSubmitted?' · Time expired':''}</p><p class="ccarf-small">This is a raw practice score, not an official scaled score or a prediction of passing.</p></div><div class="ccarf-score">${h.percent}<small>%</small></div></section><section class="ccarf-domain-grid" aria-label="Results by domain">${D.map((d,i)=>{const x=h.domains[d];return `<article class="ccarf-card"><span class="ccarf-kicker">Domain ${i+1}</span><h2>${esc(d)}</h2><b>${x.percent}%</b><progress value="${x.correct}" max="${x.total}" aria-label="${esc(d)} correct answers"></progress><span>${x.correct} / ${x.total} correct</span></article>`}).join('')}</section><div class="ccarf-actions"><button class="btn primary" data-act="review" data-id="${esc(h.id)}" data-filter="missed">Review missed questions</button><button class="btn" data-act="review" data-id="${esc(h.id)}" data-filter="all">Review all answers</button><button class="btn ghost" data-act="home">Back to practice</button></div></main>`);}
+function sourceLinks(q){const ids=q.sourceIds||DATA.topics.find(t=>t.family===q.family)?.sourceIds||[];return ids.map(id=>{const s=DATA.sources[id];return s?`<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} ↗</a>`:''}).join('');}
+function review(id,filter='missed'){const h=getResult(id);if(!h)return landing();screen={name:'review',id:h.id,filter};const rows=h.rows.filter(r=>filter==='all'||filter==='missed'&&!r.correct||filter==='flagged'&&r.flag);
+ shell(`<main class="ccarf-shell"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Learn from your attempt</div><h1>Answer review</h1></div><button class="btn" data-act="result" data-id="${esc(h.id)}">Results</button></div><div class="ccarf-review-filters" role="group" aria-label="Review filter">${['missed','flagged','all'].map(f=>`<button class="btn" data-act="review" data-id="${esc(h.id)}" data-filter="${f}" aria-pressed="${filter===f}">${f==='missed'?'Missed':f==='flagged'?'Flagged':'All answers'}</button>`).join('')}<span>${rows.length} questions</span></div>${rows.length?rows.map(r=>{const q=qmap.get(r.id),order=h.optionOrders[q.id],expected=targets(q),chosen=selections(h,q.id);return `<article class="ccarf-review"><div class="ccarf-review-num">Question ${h.questionIds.indexOf(q.id)+1} · ${r.correct?'Correct':chosen.length?'Incorrect':'Unanswered'} · ${esc(q.topic||q.domain)}</div><h2>${rich(q.stem)}</h2><div class="ccarf-review-options">${order.map((oi,di)=>`<div class="ccarf-review-option ${expected.includes(oi)?'right':chosen.includes(oi)?'wrong':''}"><div><b>${String.fromCharCode(65+di)} · ${expected.includes(oi)?'Correct choice':'Other choice'}${chosen.includes(oi)?' · You selected':''}</b><p>${rich(q.options[oi].text)}</p>${q.options[oi].rationale?`<small>${esc(q.options[oi].rationale)}</small>`:''}</div></div>`).join('')}</div><div class="ccarf-key"><b>Tested principle</b><p>${esc(q.key)}</p></div>${q.trap&&!/^[a-z-]+$/.test(q.trap)?`<div class="ccarf-key"><b>Reasoning pitfall</b><p>${esc(q.trap)}</p></div>`:''}<div class="ccarf-sources"><span>${q.task?`Task ${esc(q.task)} · `:''}Read the supporting documentation</span>${sourceLinks(q)}</div></article>`}).join(''):'<section class="ccarf-card"><h2>No questions in this filter</h2><p>Choose All answers to review the full attempt.</p></section>'}</main>`);
 }
-function review(id){
- const h=state.history.find(x=>x.id===id)||state.history[0];if(!h)return;const wrong=h.rows.filter(x=>!x.correct);
- app.innerHTML=`${header()}<main class="ccarf-shell"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Post-submit review</div><h1>${wrong.length} misses</h1></div><button class="btn" data-act="result" data-id="${h.id}">Results</button></div>${wrong.map((r,idx)=>{const q=qmap.get(r.id);if(!q)return'';const order=h.optionOrders?.[q.id]||[0,1,2,3];return `<article class="ccarf-review"><div class="ccarf-review-num">Miss ${idx+1} · ${esc(q.domain)} · ${esc(r.confidence||'No confidence')}</div><div class="ccarf-mini-scenario">${esc(scen[q.scenario].title)}</div><h3>${esc(q.stem)}</h3><div class="ccarf-review-options">${order.map((oi,di)=>`<div class="ccarf-review-option ${oi===q.correct?'right':''} ${oi===r.selected&&oi!==q.correct?'wrong':''}"><b>${String.fromCharCode(65+di)}${oi===q.correct?' · Best answer':oi===r.selected?' · Your answer':''}</b><span>${esc(q.options[oi].text)}</span></div>`).join('')}</div><div class="ccarf-key"><b>Decisive clue</b>${esc(q.key)}</div><div class="ccarf-key"><b>Why the distractor looked plausible</b>${esc(q.trap)}</div></article>`}).join('')}</main>`;
-}
-function settings(){
- const active=state.attempt,completed=state.history?.length||0;
- app.innerHTML=`${header()}<main class="ccarf-shell ccarf-settings"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Exam-level controls</div><h1>Settings</h1></div><button class="btn" data-act="${active?'resume':'home'}">${active?'Back to exam':'Back'}</button></div>
- <section class="ccarf-setting-card"><div><h2>Current attempt</h2><p>${active?`${answered(active)}/${active.total} answered with ${fmt(active.remaining)} remaining.`:'There is no active exam attempt.'}</p></div><button class="btn" data-act="reset-current" ${active?'':'disabled'}>Discard current attempt</button></section>
- <section class="ccarf-setting-card danger"><div><h2>Reset exam level from scratch</h2><p>Deletes the active attempt, all ${completed} saved result${completed===1?'':'s'}, confidence choices, flags, and rotation history. Your theme is kept.</p></div><button class="btn danger" data-act="reset-all">Reset everything</button></section></main>`;
-}
-function resetCurrent(){
- if(!state.attempt)return;
- if(!confirm('Discard this exam attempt? Answers, flags, and remaining time will be deleted.'))return;
- if(tick){clearInterval(tick);tick=null}delete state.attempt;save();landing();toast('Current attempt discarded');
-}
-function resetAll(){
- const completed=state.history?.length||0;
- if(!confirm(`Reset exam level from scratch? This deletes the active attempt and ${completed} saved result${completed===1?'':'s'}.`))return;
- if(tick){clearInterval(tick);tick=null}
- for(const key of [KEY,...LEGACY])localStorage.removeItem(key);
- state={history:[],attempt:null};save();landing();toast('Exam level reset from scratch');
-}
+function sources(){screen={name:'sources'};shell(`<main class="ccarf-shell"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Content reference</div><h1>Topics & sources</h1></div><button class="btn" data-act="home">Back</button></div><section class="ccarf-card"><h2>What this bank covers</h2><p>${DATA.questions.length} active original cases map to the 30 task statements below. Technical reference pages were checked on ${esc(DATA.reviewedOn)}. Topic mapping is an editorial assessment, not proof that a question appears on the official exam.</p><p>Blueprint cross-check: <a href="${esc(DATA.blueprint.url)}" target="_blank" rel="noopener noreferrer">Claude Certification Guide</a> and <a href="${esc(DATA.blueprint.guide)}" target="_blank" rel="noopener noreferrer">paullarionov’s study guide</a>. The official portal’s latest revision was not independently verified.</p></section>${D.map((d,i)=>`<section class="ccarf-card ccarf-topic-group"><h2>${esc(d)}</h2>${DATA.topics.filter(t=>t.task.startsWith(`${i+1}.`)).map(t=>`<div class="ccarf-topic"><span class="ccarf-topic-id">${t.task}</span><div><h3>${esc(t.title)}</h3><div class="ccarf-sources">${sourceLinks(t)}</div></div><span>${DATA.questions.filter(q=>q.task===t.task).length} cases</span></div>`).join('')}</section>`).join('')}</main>`);}
+function settings(){screen={name:'settings'};syncClock();const a=state.attempt;shell(`<main class="ccarf-shell narrow"><div class="ccarf-pagehead"><div><div class="ccarf-kicker">Practice controls</div><h1>Settings</h1></div><button class="btn" data-act="${a?'resume':'home'}">${a?'Back to exam':'Back'}</button></div><section class="ccarf-setting-card"><h2>Current attempt</h2><p>${a?`${answered(a)}/${a.total} answered · <b data-clock>${fmt(a.remaining)}</b> remaining. The timer continues while settings are open.`:'No active attempt.'}</p><button class="btn" data-act="reset-current" ${a?'':'disabled'}>Discard current attempt</button></section><section class="ccarf-setting-card danger"><h2>Reset exam level from scratch</h2><p>Deletes your current attempt, ${state.history.length} saved results, flags, answers, and rotation history on this browser. Keeps your theme.</p><button class="btn danger" data-act="reset-all">Reset everything</button></section><section class="ccarf-setting-card"><h2>Question bank</h2><p>Version ${esc(DATA.version)} · ${DATA.questions.length} active cases. Older versions are retained so previous attempts can still be reviewed.</p><button class="btn ghost" data-act="sources">View topics & sources</button></section></main>`);}
+function resetCurrent(){if(!state.attempt||!confirm('Discard the current attempt? Its answers and timer will be removed. Completed results are kept.'))return;state.attempt=null;stopTick();save();landing();toast('Current attempt discarded.');}
+function resetAll(){if(!confirm('Reset all exam practice on this browser? This removes your attempt, saved results, flags, and history.'))return;stopTick();let ok=true;for(const key of [KEY,...LEGACY,`${KEY}-recovery`])if(!remove(key))ok=false;state={history:[],attempt:null};recoveryNotice='';const saved=save();landing();toast(ok&&saved?'Practice reset. You can start from scratch.':'Practice cleared in this tab; browser storage could not be fully cleared.');}
+function renderScreen(){const s={...screen};if(s.name==='exam')exam();else if(s.name==='settings')settings();else if(s.name==='result')result(s.id);else if(s.name==='review')review(s.id,s.filter);else if(s.name==='sources')sources();else if(s.name==='finish')finish();else landing();}
+document.addEventListener('toggle',e=>{if(e.target.matches?.('.ccarf-navigator'))navigatorOpen=e.target.open;},true);
 document.addEventListener('click',e=>{
- const b=e.target.closest('[data-act]');if(!b)return;const x=b.dataset.act;
- if(x==='theme'){localStorage.setItem(THEME,theme()==='dark'?'light':'dark');applyTheme();document.querySelector('.ccarf-settings')?settings():state.attempt?exam():landing()}
- else if(x==='settings')settings();
- else if(x==='reset-current')resetCurrent();
- else if(x==='reset-all')resetAll();
- else if(x==='start')newAttempt(Number(b.dataset.total)||60);
- else if(x==='resume')exam();
- else if(x==='home')landing();
- else if(x==='result')result(b.dataset.id);
- else if(x==='review')review(b.dataset.id);
- else if(state.attempt){const a=state.attempt,q=qmap.get(a.questionIds[a.current]);if(x==='answer'){a.answers[q.id]=Number(b.dataset.oi);save();exam()}if(x==='confidence'){a.confidence[q.id]=b.dataset.v;save();exam()}if(x==='flag'){const i=a.flags.indexOf(q.id);i>=0?a.flags.splice(i,1):a.flags.push(q.id);save();exam()}if(x==='prev'){a.current=Math.max(0,a.current-1);save();exam()}if(x==='next'){a.current=Math.min(a.total-1,a.current+1);save();exam()}if(x==='jump'){a.current=Number(b.dataset.i);save();exam()}if(x==='saveexit'){save();landing();toast('Attempt saved')}if(x==='submit')submit(false)}
+ const b=e.target.closest('[data-act]');if(!b||b.disabled)return;const x=b.dataset.act;if(state.attempt?.deadline){syncClock();if(state.attempt.remaining===0){submit(true);return;}}
+ if(x==='theme'){selectedTheme=selectedTheme==='dark'?'light':'dark';write(THEME,selectedTheme);applyTheme();return;}
+ if(x==='settings')return settings();if(x==='sources')return sources();if(x==='reset-current')return resetCurrent();if(x==='reset-all')return resetAll();if(x==='home')return landing();if(x==='start')return newAttempt(Number(b.dataset.total));if(x==='resume')return exam();if(x==='result')return result(b.dataset.id);if(x==='review')return review(b.dataset.id,b.dataset.filter);
+ const a=state.attempt;if(!a)return;const q=qmap.get(a.questionIds[a.current]);
+ if(x==='answer'){if(choose(Number(b.dataset.oi)))rerenderAnswer(b);}else if(x==='clear'){delete a.answers[q.id];save();rerenderAnswer(b);}else if(x==='confidence'){a.confidence[q.id]=b.dataset.v;save();rerenderAnswer(b);}else if(x==='flag'){a.flags=a.flags.includes(q.id)?a.flags.filter(id=>id!==q.id):[...a.flags,q.id];save();rerenderAnswer(b);}
+ else if(['prev','next','jump','first-unanswered','first-flagged'].includes(x)){const next=x==='prev'?a.current-1:x==='next'?a.current+1:x==='jump'?Number(b.dataset.i):a.questionIds.findIndex(id=>x==='first-unanswered'?!completeAnswer(a,id):a.flags.includes(id));if(Number.isInteger(next)&&next>=0&&next<a.total){a.current=next;save();exam();focusQuestion();}}
+ else if(x==='navfilter'){navFilter=b.dataset.filter;navigatorOpen=true;exam();}else if(x==='saveexit'){syncClock();const ok=save();landing();toast(ok?'Attempt saved. The timer is still running.':'Answers remain in this tab, but browser storage is unavailable.');}else if(x==='finish')finish();else if(x==='submit')submit(false);
 });
+document.addEventListener('keydown',e=>{if(screen.name!=='exam'||!state.attempt||e.altKey||e.ctrlKey||e.metaKey||e.repeat||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.target.isContentEditable||!/^[1-5]$/.test(e.key))return;syncClock();if(state.attempt.remaining===0)return submit(true);const id=state.attempt.questionIds[state.attempt.current],oi=state.attempt.optionOrders[id][Number(e.key)-1];if(oi===undefined)return;e.preventDefault();if(choose(oi)){exam();document.querySelector(`[data-act="answer"][data-oi="${oi}"]`)?.focus({preventScroll:true});}});
+window.addEventListener('pagehide',()=>{syncClock();save();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){syncClock();if(state.attempt?.deadline&&state.attempt.remaining===0)submit(true);}});
+window.addEventListener('storage',e=>{if(e.key===THEME){selectedTheme=e.newValue==='light'?'light':'dark';applyTheme();}else if(e.key===KEY){state=load();stopTick();renderScreen();}});
 applyTheme();landing();
 })();

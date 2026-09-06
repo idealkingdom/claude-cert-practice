@@ -1,137 +1,84 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
+import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-
-const root = new URL('../', import.meta.url);
-const bankSource = fs.readFileSync(new URL('ccarf-final-bank.js', root), 'utf8');
-const appSource = fs.readFileSync(new URL('ccarf-final.js', root), 'utf8');
-const bankSandbox = { window: {} };
-vm.runInNewContext(bankSource, bankSandbox);
-
-const bank = bankSandbox.window.CCARF_FINAL_BANK;
-const failures = [];
-const assert = (condition, message) => { if (!condition) failures.push(message); };
-const forbidden = [
-  'under the stated latency and cost constraints',
-  'using the current model and approved tool inventory',
-  'while keeping unrelated service boundaries unchanged',
-  'while retaining existing monitoring and rollback controls',
-  'while preserving the current audit path',
-  'without weakening the existing authorization policy',
-  'while keeping the existing service boundary',
-  'with the current latency target unchanged',
-  'without adding another model call',
-  'cycles have more time to resolve naturally',
-  'hide one of the tools randomly',
-  'force both tools on every turn',
-  'give every peer more tools'
-];
-
-assert(bank.questions.length === 480, `Expected 480 bank entries, found ${bank.questions.length}.`);
-assert(new Set(bank.questions.map(q => q.id)).size === bank.questions.length, 'Question IDs are not unique.');
-
-let uniqueLongestWords = 0;
-let uniqueLongestChars = 0;
-let uniqueShortestChars = 0;
-let maxCharacterRange = 0;
-for (const question of bank.questions) {
-  assert(question.stem && question.stem.length > 45, `${question.id}: stem is too short.`);
-  assert(question.conceptId, `${question.id}: missing decision fingerprint.`);
-  assert(Array.isArray(question.options) && question.options.length === 4, `${question.id}: expected four options.`);
-  assert(Number.isInteger(question.correct) && question.correct >= 0 && question.correct < 4, `${question.id}: invalid correct option.`);
-  const combined = [question.stem, ...question.options.map(o => o.text)].join(' ').toLowerCase();
-  for (const phrase of forbidden) assert(!combined.includes(phrase), `${question.id}: contains giveaway phrase “${phrase}”.`);
-  assert(new Set(question.options.map(o => o.text.toLowerCase())).size === 4, `${question.id}: duplicate option text.`);
-  const wordLengths = question.options.map(o => o.text.trim().split(/\s+/).length);
-  const characterLengths = question.options.map(o => o.text.length);
-  const longestWords = Math.max(...wordLengths);
-  const longestChars = Math.max(...characterLengths);
-  const shortestChars = Math.min(...characterLengths);
-  if (wordLengths[question.correct] === longestWords && wordLengths.filter(n => n === longestWords).length === 1) uniqueLongestWords++;
-  if (characterLengths[question.correct] === longestChars && characterLengths.filter(n => n === longestChars).length === 1) uniqueLongestChars++;
-  if (characterLengths[question.correct] === shortestChars && characterLengths.filter(n => n === shortestChars).length === 1) uniqueShortestChars++;
-  maxCharacterRange = Math.max(maxCharacterRange, longestChars - shortestChars);
+const root=new URL('../',import.meta.url),box={window:{}};
+vm.runInNewContext(fs.readFileSync(new URL('ccarf-final-bank.js',root),'utf8'),box);
+const bank=box.window.CCARF_FINAL_BANK;
+const appSource=fs.readFileSync(new URL('ccarf-final.js',root),'utf8');
+const instrumented=appSource.replace('applyTheme();landing();','window.__test={buildForm,validAttempt,load,save,choose,submit,resetCurrent,resetAll,syncClock,startTick,exam,landing,review,settings,newAttempt,targets,correctFor,completeAnswer,getState:()=>state,setState:v=>{state=v},getScreen:()=>screen};');
+const key='ccarf-rotation-final-v4';
+function harness(initial=new Map()){
+ const storage=new Map(initial),events={},windowEvents={},intervals=new Map(),app={innerHTML:''};let now=1_800_000_000_000,serial=0,approved=true,blocked=false;
+ const node={hidden:true,content:'',setAttribute(){},focus(){},scrollIntoView(){},classList:{toggle(){}}};
+ const sandbox={window:{CCARF_FINAL_BANK:bank,addEventListener:(name,fn)=>{windowEvents[name]=fn}},document:{getElementById:id=>id==='ccarf-final-app'?app:node,querySelector:s=>s.startsWith('meta')?node:null,querySelectorAll:()=>[],documentElement:{dataset:{}},addEventListener:(n,fn)=>{events[n]=fn},hidden:false},localStorage:{getItem:k=>{if(blocked)throw Error('blocked');return storage.get(k)||null},setItem:(k,v)=>{if(blocked)throw Error('blocked');storage.set(k,v)},removeItem:k=>{if(blocked)throw Error('blocked');storage.delete(k)}},crypto:webcrypto,Uint32Array,console,Math,Date:class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now}},setInterval:fn=>{intervals.set(++serial,fn);return serial},clearInterval:id=>intervals.delete(id),setTimeout:()=>1,clearTimeout(){},confirm:()=>approved};
+ vm.runInNewContext(instrumented,sandbox);
+ return {test:sandbox.window.__test,storage,app,events,windowEvents,intervals,advance:ms=>{now+=ms},confirm:v=>{approved=v},blockStorage:v=>{blocked=v},click:(act,extra={})=>events.click({target:{closest:()=>({dataset:{act,...extra},disabled:false})}})};
 }
-
-const longestWordRate = uniqueLongestWords / bank.questions.length;
-const longestCharRate = uniqueLongestChars / bank.questions.length;
-const shortestCharRate = uniqueShortestChars / bank.questions.length;
-assert(longestWordRate <= 0.35, `Correct answer is uniquely longest by words in ${(longestWordRate * 100).toFixed(1)}% of items.`);
-assert(longestCharRate <= 0.35, `Correct answer is uniquely longest visually in ${(longestCharRate * 100).toFixed(1)}% of items.`);
-assert(shortestCharRate <= 0.35, `Correct answer is uniquely shortest visually in ${(shortestCharRate * 100).toFixed(1)}% of items.`);
-assert(maxCharacterRange <= 24, `An option set has a ${maxCharacterRange}-character length spread.`);
-assert(bank.questions.filter(q => q.difficulty === 'adversarial').length === 462, 'Legacy decision cases were not fully rebuilt with adversarial options.');
-assert(new Set(bank.questions.map(q => q.conceptId)).size >= 63, 'Decision fingerprint coverage fell below 63 patterns.');
-
-const instrumented = appSource.replace(
-  'applyTheme();landing();',
-  'window.__ccarfTest={buildForm,resetAll,setState:value=>{state=value},getState:()=>state,DATA,qmap};'
-);
-const storage = new Map();
-const appSandbox = {
-  window: { CCARF_FINAL_BANK: bank },
-  document: {
-    getElementById: () => ({}),
-    addEventListener: () => {},
-    createElement: () => ({ remove: () => {} }),
-    documentElement: { dataset: {} },
-    querySelector: selector => selector.startsWith('meta') ? { content: '' } : null,
-    body: { appendChild: () => {} }
-  },
-  localStorage: {
-    getItem: key => storage.get(key) ?? null,
-    setItem: (key, value) => storage.set(key, value),
-    removeItem: key => storage.delete(key)
-  },
-  crypto: webcrypto,
-  console,
-  setInterval,
-  clearInterval,
-  setTimeout,
-  clearTimeout,
-  confirm: () => true,
-  Date,
-  Math,
-  Uint32Array
-};
-vm.runInNewContext(instrumented, appSandbox);
-const test = appSandbox.window.__ccarfTest;
-
-for (const total of [30, 60]) {
-  const history = [];
-  for (let run = 0; run < 40; run++) {
-    test.setState({ history, attempt: null });
-    const form = test.buildForm(total);
-    const questions = form.questionIds.map(id => test.qmap.get(id));
-    const quota = total === 60 ? bank.exam.quotas60 : bank.exam.quotas30;
-    assert(questions.length === total, `${total}-question form ${run}: wrong item count.`);
-    assert(new Set(form.questionIds).size === total, `${total}-question form ${run}: repeated question ID.`);
-    assert(new Set(questions.map(q => q.conceptId)).size === total, `${total}-question form ${run}: repeated decision fingerprint.`);
-    assert(form.scenarioIds.every(id => questions.filter(q => q.scenario === id).length === 15), `${total}-question form ${run}: scenario block is not 15 items.`);
-    for (const [domain, expected] of Object.entries(quota)) {
-      assert(questions.filter(q => q.domain === domain).length === expected, `${total}-question form ${run}: ${domain} quota mismatch.`);
-    }
-    history.unshift({ id: `test-${total}-${run}`, questionIds: form.questionIds, scenarioIds: form.scenarioIds });
-    history.splice(30);
-  }
+assert.equal(bank.questions.length,90);
+assert.equal(bank.topics.length,30);
+assert.equal(new Set(bank.questions.map(q=>q.id)).size,90);
+assert.equal(new Set(bank.questions.map(q=>q.stem.toLowerCase())).size,90,'Identical active stems');
+assert.equal(bank.questions.filter(q=>q.selectCount===2).length,12);
+let longest=0,shortest=0,single=0;
+for(const q of bank.questions){
+ assert(bank.topics.some(t=>t.task===q.task),`${q.id}: unmapped topic`);
+ assert.equal(Number(q.task[0])-1,Object.keys(bank.exam.quotas60).indexOf(q.domain),`${q.id}: wrong domain`);
+ assert(q.sourceIds.length&&q.sourceIds.every(s=>bank.sources[s]?.url.startsWith('https://')),`${q.id}: missing primary references`);
+ assert(q.key&&q.reviewedOn===bank.reviewedOn);
+ assert(q.options.length>=4&&q.options.length<=5);
+ assert.equal(new Set(q.options.map(o=>o.text.toLowerCase())).size,q.options.length);
+ assert(q.correctAnswers.length===q.selectCount&&new Set(q.correctAnswers).size===q.selectCount);
+ assert(q.correctAnswers.every(i=>Number.isInteger(i)&&i>=0&&i<q.options.length));
+ assert(!/while preserving the current|under the stated latency and cost|using the current model and approved/i.test(q.options.map(o=>o.text).join(' ')));
+ if(q.selectCount>1)assert(q.options.every(o=>o.rationale?.length>20));
+ else{single++;const lens=q.options.map(o=>o.text.trim().split(/\s+/).length),n=lens[q.correctAnswers[0]];longest+=n===Math.max(...lens)&&lens.filter(v=>v===n).length===1;shortest+=n===Math.min(...lens)&&lens.filter(v=>v===n).length===1;}
 }
-
-storage.set('claude-cert-theme', 'light');
-storage.set('ccarf-rotation-final-v4', 'old');
-storage.set('ccarf-rotation-final-v3', 'old');
-storage.set('ccarf-rotation-final-v2', 'old');
-storage.set('ccarf-sealed-final-v1', 'old');
-test.setState({ history: [{ id: 'old-result' }], attempt: { id: 'old-attempt' } });
-test.resetAll();
-assert(test.getState().history.length === 0 && !test.getState().attempt, 'Full reset did not clear in-memory exam state.');
-assert(!storage.has('ccarf-rotation-final-v4') || storage.get('ccarf-rotation-final-v4') === '{"history":[],"attempt":null}', 'Full reset retained current exam data.');
-assert(!storage.has('ccarf-rotation-final-v3') && !storage.has('ccarf-rotation-final-v2') && !storage.has('ccarf-sealed-final-v1'), 'Full reset retained legacy exam data.');
-assert(storage.get('claude-cert-theme') === 'light', 'Full reset should preserve the selected theme.');
-
-if (failures.length) {
-  console.error(failures.map(message => `- ${message}`).join('\n'));
-  process.exit(1);
+assert(longest/single<=.35,`Correct choice uniquely longest in ${longest}/${single}`);
+assert(shortest/single<=.35,`Correct choice uniquely shortest in ${shortest}/${single}`);
+for(const t of bank.topics)assert(bank.questions.some(q=>q.task===t.task),`${t.task}: no questions`);
+const h=harness(),t=h.test;
+for(const total of [30,60]){
+ const history=[];
+ for(let run=0;run<40;run++){
+ t.setState({history,attempt:null});const form=t.buildForm(total),qs=form.questionIds.map(id=>bank.questions.find(q=>q.id===id));
+ assert.equal(qs.length,total);assert.equal(new Set(qs.map(q=>q.conceptId)).size,total);
+ for(const [domain,n] of Object.entries(total===60?bank.exam.quotas60:bank.exam.quotas30)){assert.equal(qs.filter(q=>q.domain===domain).length,n);assert(qs.some(q=>q.domain===domain&&q.selectCount===2));}
+ for(const q of qs)assert.deepEqual([...form.optionOrders[q.id]].sort(),Array.from(q.options,(_,i)=>i));
+ assert.equal(form.repeatedCount,qs.filter(q=>history.some(p=>p.questionIds.includes(q.id))).length);
+ history.unshift({id:`run-${total}-${run}`,questionIds:form.questionIds});history.splice(30);
+ }
 }
-
-console.log(`Validated ${bank.questions.length} entries, ${new Set(bank.questions.map(q => q.conceptId)).size} decision fingerprints, and 80 rotating forms.`);
-console.log(`Correct option is visually longest in ${(longestCharRate * 100).toFixed(1)}% and visually shortest in ${(shortestCharRate * 100).toFixed(1)}% of bank entries; maximum option spread is ${maxCharacterRange} characters.`);
+t.setState({history:[],attempt:null});t.newAttempt(30);const a=t.getState().attempt;
+assert(t.validAttempt(a));assert.equal(h.intervals.size,1);
+const deadline=a.deadline;h.advance(25_500);t.syncClock();assert.equal(a.remaining,3575,'Timer must use elapsed wall time');
+t.exam();t.exam();t.startTick();assert.equal(h.intervals.size,1,'Rerenders must not restart timers');assert.equal(a.deadline,deadline);
+t.landing();h.advance(14_500);t.syncClock();assert.equal(a.remaining,3560,'Timer must continue off the exam screen');
+const multi=bank.questions.find(q=>a.questionIds.includes(q.id)&&q.selectCount===2);a.current=a.questionIds.indexOf(multi.id);
+t.choose(multi.correctAnswers[0]);assert(!t.completeAnswer(a,multi.id));assert(!t.correctFor(a,multi));
+t.choose(multi.correctAnswers[1]);assert(t.completeAnswer(a,multi.id));assert(t.correctFor(a,multi));
+const wrong=multi.options.findIndex((_,i)=>!multi.correctAnswers.includes(i));t.choose(wrong);assert.equal(a.answers[multi.id].length,2,'Selection cap');
+t.choose(multi.correctAnswers[1]);t.choose(wrong);assert(t.completeAnswer(a,multi.id));assert(!t.correctFor(a,multi),'No partial credit');
+assert.equal(t.validAttempt({...a,current:999}).current,29);
+assert.equal(t.validAttempt({...a,questionIds:['missing']}),null);
+assert.equal(t.validAttempt({...a,optionOrders:{}}),null);
+assert.equal(t.validAttempt({...a,remaining:NaN}),null);
+t.save();const restored=harness(h.storage);assert.equal(restored.test.getState().attempt.deadline,deadline);assert.equal(restored.test.getState().attempt.answers[multi.id].length,2);
+h.confirm(false);t.submit();assert(t.getState().attempt,'Cancelled submission must preserve attempt');
+for(const id of a.questionIds){const q=bank.questions.find(q=>q.id===id);a.answers[id]=[...q.correctAnswers];}
+h.confirm(true);t.submit();assert.equal(t.getState().history[0].percent,100);assert.equal(t.getState().attempt,null);assert.equal(h.intervals.size,0);
+t.review(t.getState().history[0].id,'all');const html=h.app.innerHTML;h.click('theme');assert.equal(t.getScreen().name,'review');assert.equal(h.app.innerHTML,html,'Theme toggle must not navigate away');
+const completed=harness(h.storage);assert.equal(completed.test.getState().history.length,1,'Completed results must survive reload');
+t.newAttempt(30);h.advance(3_601_000);t.syncClock();for(const fn of [...h.intervals.values()])fn();assert.equal(t.getState().attempt,null);assert(t.getState().history[0].autoSubmitted);assert.equal(t.getState().history.length,2);t.submit(true);assert.equal(t.getState().history.length,2,'Do not submit twice');
+h.confirm(false);t.resetAll();assert.equal(t.getState().history.length,2,'Cancelled reset must preserve history');
+h.storage.set(THEME_KEY(),'light');for(const k of ['ccarf-rotation-final-v3','ccarf-rotation-final-v2','ccarf-sealed-final-v1',`${key}-recovery`])h.storage.set(k,'old');
+h.confirm(true);t.resetAll();assert.equal(t.getState().history.length,0);assert.equal(h.storage.get(THEME_KEY()),'light');assert(!h.storage.has('ccarf-rotation-final-v3'));assert(!h.storage.has(`${key}-recovery`));
+const corrupt=harness(new Map([[key,'{bad json']]));assert.equal(corrupt.test.getState().attempt,null);assert.equal(corrupt.storage.get(`${key}-recovery`),'{bad json');
+const malformed=harness(new Map([[key,JSON.stringify({attempt:{id:'bad'},history:{not:'array'}})]]));assert.equal(malformed.test.getState().history.length,0);assert.equal(malformed.test.getState().attempt,null);
+h.blockStorage(true);assert.doesNotThrow(()=>t.landing());assert.equal(t.save(),false);h.blockStorage(false);
+// Old IDs, numeric selections and option orders remain valid for existing V4 attempts.
+const old=bank.archive.slice(0,30),legacy={id:'legacy',total:30,remaining:120,current:0,questionIds:old.map(q=>q.id),optionOrders:Object.fromEntries(old.map(q=>[q.id,[0,1,2,3]])),answers:{[old[0].id]:old[0].correct},confidence:{},flags:[]};
+assert(t.validAttempt(legacy));assert(t.correctFor(t.validAttempt(legacy),old[0]));
+function THEME_KEY(){return 'claude-cert-theme';}
+console.log(`PASS: 90 cases, 30 mapped topics, 12 multiple-response cases, 80 forms, scoring, timer, persistence, legacy restoration, reset and theme regressions.`);
+console.log(`Single-choice answer-length audit: uniquely longest ${longest}/${single}; uniquely shortest ${shortest}/${single}.`);
