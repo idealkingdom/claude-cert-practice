@@ -22,6 +22,8 @@ The active bank contains 90 original cases across all 30 task labels used by the
 - Removed uncalibrated pass predictions and misleading question-pool claims.
 - Timer uses a persisted deadline. Clicking, changing screens and reloading do not add time. Save & exit explicitly states that time continues.
 - Theme changes preserve the current page. Answer changes preserve focus. Buttons expose selection state and the page includes keyboard shortcuts and a skip link.
+- Reset uses an in-page confirmation with Cancel and explicit destructive-action text. Submission uses the pre-submit review screen without an additional blocking browser dialog.
+- Existing attempts visibly identify when they use an earlier question-bank version, with instructions for starting reviewed cases.
 - Validates saved attempts, retains a backup of unreadable data, reports unavailable storage and preserves old question versions for prior results.
 
 ## Automated verification
