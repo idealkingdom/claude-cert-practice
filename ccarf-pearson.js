@@ -40,6 +40,12 @@ function enhanceExam(){
    const b=document.createElement('button');b.className='btn pearson-review-button';b.dataset.act='finish';b.textContent='Review';
    controls.insertBefore(b,next||null);
  }
+ const confidence=question.querySelector('.ccarf-confidence');
+ if(confidence&&!confidence.closest('.pearson-practice-tools')){
+   const details=document.createElement('details');details.className='pearson-practice-tools';
+   const summary=document.createElement('summary');summary.textContent='Practice tools';
+   confidence.before(details);details.append(summary,confidence);
+ }
 }
 function readAttempt(){
  try{return JSON.parse(localStorage.getItem(KEY)||'{}').attempt||null}catch{return null}
