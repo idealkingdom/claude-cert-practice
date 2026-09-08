@@ -23,7 +23,7 @@ body.pearson-exam-mode .ccarf-question>.pearson-scenario{grid-column:1;grid-row:
 .pearson-scenario-label{display:inline-block;margin-bottom:12px;padding:3px 8px;background:#08769d;color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 body.pearson-exam-mode .pearson-scenario h2{margin:0 0 13px;font:700 15px/1.35 Arial,Helvetica,sans-serif;color:#20282d;letter-spacing:0}
 body.pearson-exam-mode .pearson-scenario p{margin:0;font-size:13px;line-height:1.55;color:#38464e}
-body.pearson-exam-mode .ccarf-question>.ccarf-sectionhead,body.pearson-exam-mode .ccarf-question>.ccarf-stem,body.pearson-exam-mode .ccarf-question>.ccarf-options,body.pearson-exam-mode .ccarf-question>.ccarf-selection-status,body.pearson-exam-mode .ccarf-question>.ccarf-confidence{grid-column:2;margin-left:27px;margin-right:27px}
+body.pearson-exam-mode .ccarf-question>.ccarf-sectionhead,body.pearson-exam-mode .ccarf-question>.ccarf-stem,body.pearson-exam-mode .ccarf-question>.ccarf-options,body.pearson-exam-mode .ccarf-question>.ccarf-selection-status,body.pearson-exam-mode .ccarf-question>.pearson-practice-tools{grid-column:2;margin-left:27px;margin-right:27px}
 body.pearson-exam-mode .ccarf-question>.ccarf-sectionhead{margin-top:22px}
 body.pearson-exam-mode .ccarf-count-label{font-size:12px;font-weight:700;color:#5b6870}
 body.pearson-exam-mode .ccarf-question>.ccarf-sectionhead .ccarf-flag{display:none}
@@ -36,8 +36,12 @@ body.pearson-exam-mode .ccarf-letter{width:24px;height:24px;border:1px solid #71
 body.pearson-exam-mode .pearson-multi .ccarf-letter{border-radius:2px}
 body.pearson-exam-mode .selected .ccarf-letter{background:#08769d;color:#fff;border-color:#08769d}
 body.pearson-exam-mode .ccarf-check{color:#08769d}
-body.pearson-exam-mode .ccarf-selection-status{margin-top:9px;margin-bottom:18px;min-height:17px;color:#59676f;font-size:11px}
-body.pearson-exam-mode .ccarf-confidence{display:none}
+body.pearson-exam-mode .ccarf-selection-status{margin-top:9px;margin-bottom:8px;min-height:17px;color:#59676f;font-size:11px}
+body.pearson-exam-mode .pearson-practice-tools{margin-top:0;margin-bottom:14px;border:0;color:#58666e;font-size:11px}
+body.pearson-exam-mode .pearson-practice-tools>summary{width:max-content;padding:5px 0;cursor:pointer;color:#59676f;font-size:11px;text-decoration:underline;text-underline-offset:2px}
+body.pearson-exam-mode .pearson-practice-tools .ccarf-confidence{margin:6px 0 0;padding:10px 0 0;border-top:1px solid #d7dee1;color:#39474f}
+body.pearson-exam-mode .pearson-practice-tools .ccarf-confidence button{color:#39474f;border-color:#aebbc2}
+body.pearson-exam-mode .pearson-practice-tools .ccarf-confidence button.on{background:#e6f2f7;border-color:#08769d}
 body.pearson-exam-mode .ccarf-controls{grid-column:1/-1;position:sticky;bottom:0;z-index:20;display:flex;align-items:center;justify-content:flex-end;gap:7px;margin:20px 0 0;padding:10px 12px;background:#eef2f4;border-top:1px solid #b9c5ca;box-shadow:0 -1px 2px #1a28301a}
 body.pearson-exam-mode .ccarf-controls .btn{min-height:37px;padding:7px 15px;border:1px solid #71858f;border-radius:2px;background:#fff;color:#20282d;font:700 12px/1.2 Arial,Helvetica,sans-serif}
 body.pearson-exam-mode .ccarf-controls .btn:hover:not(:disabled){background:#f8fafb;border-color:#405761}
@@ -78,7 +82,7 @@ body.pearson-review-mode .ccarf-card>.ccarf-small{display:block;margin:0;padding
  body.pearson-exam-mode .ccarf-exam-layout{width:100%;margin:0}
  body.pearson-exam-mode .ccarf-question{grid-template-columns:1fr;border-left:0;border-right:0;border-top:0;box-shadow:none}
  body.pearson-exam-mode .ccarf-question>.pearson-scenario{grid-column:1;grid-row:auto;min-height:0;padding:17px 16px;border-right:0;border-bottom:1px solid #bcc7cc}
- body.pearson-exam-mode .ccarf-question>.ccarf-sectionhead,body.pearson-exam-mode .ccarf-question>.ccarf-stem,body.pearson-exam-mode .ccarf-question>.ccarf-options,body.pearson-exam-mode .ccarf-question>.ccarf-selection-status{grid-column:1;margin-left:16px;margin-right:16px}
+ body.pearson-exam-mode .ccarf-question>.ccarf-sectionhead,body.pearson-exam-mode .ccarf-question>.ccarf-stem,body.pearson-exam-mode .ccarf-question>.ccarf-options,body.pearson-exam-mode .ccarf-question>.ccarf-selection-status,body.pearson-exam-mode .ccarf-question>.pearson-practice-tools{grid-column:1;margin-left:16px;margin-right:16px}
  body.pearson-exam-mode .ccarf-question>.ccarf-sectionhead{margin-top:17px}
  body.pearson-exam-mode .ccarf-stem{font-size:16px}
  body.pearson-exam-mode .ccarf-option{font-size:13px;padding:10px}
