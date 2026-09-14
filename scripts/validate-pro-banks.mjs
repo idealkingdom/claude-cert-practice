@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 globalThis.window={};
-for(const file of ['questions.js','extras-developerF.js','extras-architectP.js','hard-questions.js','exam-hardening-20260915.js','exam-bank-active.js']){
+for(const file of ['questions.js','extras-developerF.js','extras-architectP.js','hard-questions.js','exam-hardening-20260915.js','exam-option-balance.js','exam-bank-active.js']){
   vm.runInThisContext(fs.readFileSync(file,'utf8'),{filename:file});
 }
 
@@ -56,6 +56,7 @@ for(const key of targets){
   const cue=v6.filter(cueRisk);
   console.log(`  v6 task-mapped: ${v6.length}; objective labels: ${objectives.size}; length-cue flags: ${cue.length}`);
   for(const q of cue)console.log(`    CUE ${q.id} correct=${q.correct[0]} lengths=${q.options.map(o=>String(o).length).join('/')}`);
+  if(cue.length)die(`${key} still has ${cue.length} obvious correct-answer length cues`);
   if(key==='architectP'&&v6.length<38)die('architectP needs at least one new case per published task area');
   if(key==='developerF'&&objectives.size<25)die('developerF needs all 25 published sub-skills represented');
 }
