@@ -1,0 +1,53 @@
+/* Pearson VUE-inspired test-delivery treatment. No Pearson branding/assets. */
+.exam-shell{min-height:100vh;background:#e8edf0;color:#20282d;font-family:Arial,Helvetica,sans-serif;padding-bottom:66px}
+.exam-shell .exam-top{position:sticky;top:0;z-index:40;background:#08769d;color:#fff;border-bottom:1px solid #005d7d;box-shadow:0 1px 3px #1b313b33}
+.exam-shell .exam-top-inner{width:min(1120px,100%);min-height:60px;margin:auto;padding:8px 18px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px}
+.exam-shell .exam-progress{font-size:13px;font-weight:700;letter-spacing:.01em}
+.exam-shell .timer{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;text-align:center}
+.exam-shell .exam-tools{display:flex;justify-content:flex-end;gap:6px}
+.exam-shell .exam-tools .icon-btn{width:38px;height:36px;border:1px solid #d2e6ed;border-radius:2px;background:#fff;color:#24414d;box-shadow:none}
+.exam-shell .exam-tools .icon-btn:hover{background:#f1f7f9}
+.exam-shell .exam-tools .flag.active{background:#fff1cf;color:#765200;border-color:#e0b246}
+.exam-shell .question-wrap{width:min(1080px,calc(100% - 30px));margin:22px auto 84px;padding:26px 30px 30px;background:#fff;border:1px solid #aebbc2;border-radius:2px;box-shadow:0 1px 4px #20313b24}
+.exam-shell .q-domain{margin:-26px -30px 24px;padding:8px 13px;background:#f0f3f4;border-bottom:1px solid #bdc8cd;color:#4d5c63;font-size:11px;font-weight:700;letter-spacing:.015em;text-transform:none}
+.exam-shell .scenario-card{margin:0 0 22px;padding:16px 18px;background:#f2f5f6;border:1px solid #c4cfd4;border-left:4px solid #08769d;border-radius:0;color:#26353d}
+.exam-shell .scenario-kicker{margin-bottom:7px;color:#08769d;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.exam-shell .scenario-card p{margin:0;color:#3e4d55;font-size:13px;line-height:1.55}
+.exam-shell .select-rule,.exam-shell .format-note{margin:0 0 14px;color:#53636b;font-size:12px;font-weight:700}
+.exam-shell .select-rule b{float:right;font-weight:600;color:#53636b}
+.exam-shell .stem{max-width:940px;margin:0 0 22px;color:#1e282d;font:600 18px/1.52 Arial,Helvetica,sans-serif;letter-spacing:0}
+.exam-shell .options{display:grid;gap:9px}
+.exam-shell .option{width:100%;min-height:50px;display:grid;grid-template-columns:28px minmax(0,1fr);align-items:start;gap:12px;padding:11px 13px;border:1px solid #b7c3c8;border-radius:2px;background:#fff;color:#26343b;text-align:left;font:400 14px/1.45 Arial,Helvetica,sans-serif;box-shadow:none}
+.exam-shell .option:hover{border-color:#71868f;background:#f8fafb}
+.exam-shell .option.selected{border-color:#08769d;background:#e7f3f7;box-shadow:inset 3px 0 0 #08769d}
+.exam-shell .choice-key{display:grid;place-items:center;width:24px;height:24px;border:1px solid #74878f;border-radius:50%;background:#fff;color:#26343b;font-size:11px;font-weight:700}
+.exam-shell .option.selected .choice-key{background:#08769d;border-color:#08769d;color:#fff}
+.exam-shell .confidence{margin-top:22px;padding-top:14px;border-top:1px solid #d6dde0;color:#5a6870;font-size:11px}
+.exam-shell .confidence-btn{min-height:32px;border:1px solid #aebbc2;border-radius:2px;background:#fff;color:#35454d;font-size:11px}
+.exam-shell .confidence-btn.selected{border-color:#08769d;background:#e7f3f7;color:#1c5368}
+.exam-shell .matrix-list,.exam-shell .match-list{border:1px solid #bac6cb}
+.exam-shell .matrix-row,.exam-shell .match-row{border-bottom:1px solid #d4dcdf;background:#fff}
+.exam-shell .matrix-row:last-child,.exam-shell .match-row:last-child{border-bottom:0}
+.exam-shell .mini-choice,.exam-shell .match-row select{border-radius:2px;border-color:#9fadb3;background:#fff;color:#26343b}
+.exam-shell .mini-choice.selected{border-color:#08769d;background:#e7f3f7;color:#15546a}
+.exam-shell .exam-footer{position:fixed;left:0;right:0;bottom:0;z-index:35;background:#eef2f4;border-top:1px solid #aebbc2;box-shadow:0 -1px 3px #1d30391f}
+.exam-shell .exam-footer-inner{width:min(1120px,100%);min-height:58px;margin:auto;padding:9px 18px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px}
+.exam-shell .exam-footer .btn{min-height:37px;border-radius:2px;border:1px solid #71858f;background:#fff;color:#25353c;font:700 12px/1.2 Arial,Helvetica,sans-serif;box-shadow:none}
+.exam-shell .exam-footer .btn.primary{justify-self:end;background:#08769d;border-color:#005d7d;color:#fff}
+.exam-shell .exam-footer .btn.ghost{justify-self:start}
+.exam-shell .answered-chip{color:#5b6970;font-size:11px;text-align:center}
+
+@media(max-width:700px){
+ .exam-shell{padding-bottom:62px}
+ .exam-shell .exam-top-inner{min-height:56px;padding:7px 10px;gap:8px}
+ .exam-shell .timer{font-size:17px}
+ .exam-shell .exam-tools{gap:4px}
+ .exam-shell .exam-tools .icon-btn{width:34px;height:34px}
+ .exam-shell .question-wrap{width:100%;margin:0 0 72px;padding:20px 16px 24px;border-left:0;border-right:0;border-top:0;box-shadow:none}
+ .exam-shell .q-domain{margin:-20px -16px 19px;padding:8px 11px}
+ .exam-shell .stem{font-size:16px;line-height:1.5}
+ .exam-shell .option{grid-template-columns:26px minmax(0,1fr);gap:9px;padding:10px;font-size:13px}
+ .exam-shell .exam-footer-inner{min-height:56px;padding:8px 10px;gap:7px}
+ .exam-shell .exam-footer .btn{padding:7px 10px;font-size:11px}
+ .exam-shell .answered-chip{font-size:10px}
+}
