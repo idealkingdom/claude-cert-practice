@@ -27,8 +27,6 @@ const cueRisk=q=>{
 
 for(const key of targets){
   const bank=buildBank(key);
-  // Simulate app.js's first map call. The compatibility shim includes archived
-  // questions in this one lookup so saved pre-hardening attempts remain readable.
   const lookupRows=bank.map(q=>[q.id,q]);
   const lookup=new Map(lookupRows);
   const active=Array.from(bank);
@@ -55,7 +53,9 @@ for(const key of targets){
   }
   const v6=active.filter(q=>q.id.startsWith(`v6-${key}-`));
   const objectives=new Set(v6.map(q=>q.objective).filter(Boolean));
-  console.log(`  v6 task-mapped: ${v6.length}; objective labels: ${objectives.size}; length-cue flags: ${v6.filter(cueRisk).length}`);
+  const cue=v6.filter(cueRisk);
+  console.log(`  v6 task-mapped: ${v6.length}; objective labels: ${objectives.size}; length-cue flags: ${cue.length}`);
+  for(const q of cue)console.log(`    CUE ${q.id} correct=${q.correct[0]} lengths=${q.options.map(o=>String(o).length).join('/')}`);
   if(key==='architectP'&&v6.length<38)die('architectP needs at least one new case per published task area');
   if(key==='developerF'&&objectives.size<25)die('developerF needs all 25 published sub-skills represented');
 }
