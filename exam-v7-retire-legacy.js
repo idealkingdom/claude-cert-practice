@@ -1,0 +1,1 @@
+(()=>{'use strict';const previous=window.CLAUDE_CERT.buildBank;const prefixes=['extra-developerF-','extra-architectP-'];window.CLAUDE_CERT.buildBank=key=>previous(key).map(q=>prefixes.some(p=>q.id.startsWith(p))?{...q,retired:true,retiredReason:'v7-replaced-teaching-quiz-distractors'}:q);})();
